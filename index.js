@@ -124,9 +124,10 @@ const NOME_GRUPO = "GRUPO_X"; // Altere para o nome real do seu grupo
 
 // Cria o cliente do WhatsApp com autenticação local (sessão salva em disco)
 const client = new Client({
-    authStrategy: new LocalAuth(), // Garante que não será necessário escanear o QR code toda vez
+    authStrategy: new LocalAuth({
+        dataPath: '/app/.wwebjs_auth'
+    }), // Garante que não será necessário escanear o QR code toda vez
 });
-
 
 // Evento disparado quando o QR Code deve ser exibido no terminal e salvo para web
 client.on('qr', qr => {
