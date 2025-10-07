@@ -126,7 +126,20 @@ const NOME_GRUPO = "GRUPO_X"; // Altere para o nome real do seu grupo
 const client = new Client({
     authStrategy: new LocalAuth({
         dataPath: '/app/.wwebjs_auth'
-    }), // Garante que não será necessário escanear o QR code toda vez
+    }),
+    puppeteer: {
+        executablePath: '/usr/bin/chromium-browser',
+        args: [
+            '--no-sandbox',
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-accelerated-2d-canvas',
+            '--no-first-run',
+            '--no-zygote',
+            '--single-process',
+            '--disable-gpu'
+        ]
+    }
 });
 
 // Evento disparado quando o QR Code deve ser exibido no terminal e salvo para web
