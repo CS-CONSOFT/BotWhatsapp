@@ -31,7 +31,7 @@ RUN mkdir -p /app/.wwebjs_auth && \
 # Expor porta do servidor web
 EXPOSE 3000
 
-# Variáveis de ambiente para Chromium
+# Variáveis de ambiente para Chromium com argumentos de segurança
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
