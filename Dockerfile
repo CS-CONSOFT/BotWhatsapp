@@ -23,9 +23,9 @@ RUN npm ci --only=production
 # Copiar código da aplicação
 COPY . .
 
-# Criar diretório para sessão do WhatsApp
+# Criar diretório para sessão do WhatsApp e dar permissões DEPOIS de copiar
 RUN mkdir -p /app/.wwebjs_auth && \
-    chown -R node:node /app/.wwebjs_auth
+    chown -R node:node /app
 
 # Expor porta do servidor web
 EXPOSE 3000
