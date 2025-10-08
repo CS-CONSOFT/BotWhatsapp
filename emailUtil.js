@@ -9,12 +9,12 @@ let emailConfig = {
 async function enviarEmail(destino, assunto, texto, attachment) {
     // Configure o transporter conforme seu provedor de email
     let transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST || 'smtp.gmail.com',
+        host: process.env.SMTP_HOST || 'smtp.cs-consoft.com.br',
         port: process.env.SMTP_PORT || 587,
         secure: false, // true para 465, false para outras portas
         auth: {
-            user: process.env.SMTP_USER || 'ggestaosalafacomp@gmail.com',
-            pass: process.env.SMTP_PASS || 'mggo atxt fqfj ecxx',
+            user: process.env.SMTP_USER || 'samal@cs-consoft.com.br',
+            pass: process.env.SMTP_PASS || 'C$1234sa;',
         },
     });
 
