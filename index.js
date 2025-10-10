@@ -115,9 +115,9 @@ const { log } = require('console');
 const app = express();
 const PORT = 3000;
 
-
 let ultimoQR = null; // Armazena o último QR gerado
 let qrMostrado = false; // Controla se o QR já foi exibido
+let qrGerado = false; // Nova variável para controlar se já foi gerado
 
 // Nome exato do grupo que será monitorado
 const NOME_GRUPO = "GRUPO_X"; // Altere para o nome real do seu grupo
@@ -144,21 +144,51 @@ const client = new Client({
 
 // Evento disparado quando o QR Code deve ser exibido no terminal e salvo para web
 client.on('qr', qr => {
-    // if (qrMostrado) return;
+       // Só gera o QR uma vez por sessão
+    if (qrGerado) return;
+    
+    qrGerado = true;
     qrMostrado = true;
     ultimoQR = qr;
     qrcode.generate(qr, {small: true});
-    console.log("Escaneie o QR Code acima com o WhatsApp (Aparelhos conectados).");
+    console.log("QR Code gerado! Escaneie com o WhatsApp (Aparelhos conectados).");
+    console.log("Acesse o QR Code via web em uma das URLs mostradas acima.");
 });
 
 // Rota para exibir o QR Code como imagem na web
 app.get('/qr', async (req, res) => {
     if (!ultimoQR) {
-        return res.status(404).send('QR Code ainda não gerado. Aguarde...');
+        return res.status(404).send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>QR Code WhatsApp</title>
+                <meta http-equiv="refresh" content="5">
+            </head>
+            <body>
+                <h2>Aguardando QR Code...</h2>
+                <p>O QR Code ainda não foi gerado ou o bot já está conectado.</p>
+                <p>Esta página será atualizada automaticamente a cada 5 segundos.</p>
+            </body>
+            </html>
+        `);
     }
     try {
         const qrImage = await QRCode.toDataURL(ultimoQR);
-        res.send(`<!DOCTYPE html><html><head><title>QR Code WhatsApp</title></head><body><h2>Escaneie o QR Code abaixo:</h2><img src="${qrImage}" /><p>Atualize a página se necessário.</p></body></html>`);
+        res.send(`
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>QR Code WhatsApp</title>
+            </head>
+            <body>
+                <h2>Escaneie o QR Code abaixo:</h2>
+                <img src="${qrImage}" style="max-width: 400px;" />
+                <p><strong>Importante:</strong> Este QR Code é único para esta sessão.</p>
+                <p>Após escanear, o bot estará conectado e não será necessário escanear novamente.</p>
+            </body>
+            </html>
+        `);
     } catch (err) {
         res.status(500).send('Erro ao gerar QR Code');
     }
@@ -185,13 +215,21 @@ app.listen(PORT, '0.0.0.0', () => {
 
 // Evento disparado quando o bot está pronto para uso
 client.on('ready', () => {
-    qrMostrado = false; // Permite mostrar QR novamente se deslogar
+      qrMostrado = false;
+    qrGerado = false; // Reset para permitir novo QR se deslogar
+    ultimoQR = null; // Limpa o QR quando conectado
     console.log('Bot está online!');
 });
 
 // Evento disparado para cada mensagem recebida
 
-
+// Novo evento para quando a sessão é perdida
+client.on('disconnected', (reason) => {
+    console.log('Cliente desconectado:', reason);
+    qrGerado = false; // Permite gerar novo QR
+    qrMostrado = false;
+    ultimoQR = null;
+});
 
 client.on('message', async message => {
     const chat = await message.getChat();
