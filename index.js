@@ -1,3 +1,12 @@
+// Carrega variáveis de ambiente do arquivo .env (apenas em ambiente local)
+if (!process.env.DOCKER_ENV) {
+    try {
+        require('dotenv').config();
+    } catch (err) {
+        console.log('dotenv não encontrado, usando variáveis de ambiente do sistema');
+    }
+}
+
 // Utilitário de email
 const { emailConfig, enviarEmail } = require('./emailUtil');
 
@@ -22,7 +31,8 @@ class BotHandler {
     }
 
     getEmail(userId) {
-        return this.emailPorUsuario.get(userId) || 'vazio';
+        // Sempre retorna o email padrão, mas permite configuração personalizada se existir
+        return this.emailPorUsuario.get(userId) || 'samal@cs-consoft.com.br';
     }
 
     setEmail(userId, email) {
@@ -58,39 +68,74 @@ class BotHandler {
 
     async startConfig(message, chat, userId) {
         this.setConfigMode(userId, true);
+        const emailPersonalizado = this.emailPorUsuario.get(userId);
         const emailAtual = this.getEmail(userId);
-        await chat.sendMessage(`Email atual cadastrado: ${emailAtual}\nEscolha uma opção:\n1 - Definir email\n2 - Sair`);
+        const isDefault = !emailPersonalizado;
+        const status = isDefault ? '(padrão do sistema)' : '(personalizado)';
+        await chat.sendMessage(`Email atual: ${emailAtual} ${status}\nEscolha uma opção:\n1 - Definir email personalizado\n2 - Sair`);
     }
 
     async handleMedia(message, chat, userId) {
         let tipo = message.type === 'image' ? 'IMAGEM' : 'PDF';
         console.log(`[${chat.name || chat.id.user}] ${message.author || message.from}: Enviou uma ${tipo}.`);
-        const emailDestino = this.emailPorUsuario.get(userId);
-        if (!emailDestino) {
-            await chat.sendMessage('Nenhum email cadastrado. Use #CONFIG para definir um email.');
-            return;
-        }
+        
+        // Captura o texto/legenda da mensagem
+        const textoMensagem = message.body ? message.body.trim() : '';
+        console.log(`[DEBUG] Texto da mensagem: "${textoMensagem}"`);
+        
+        const emailDestino = this.getEmail(userId); // Usa a função getEmail que já tem o email padrão
+        console.log(`[DEBUG] Processando ${tipo} para envio para: ${emailDestino}`);
+        
         try {
             // Baixa o arquivo da mensagem
+            console.log(`[DEBUG] Tentando baixar mídia...`);
             const media = await message.downloadMedia();
             if (!media) {
+                console.log(`[ERRO] Não foi possível baixar mídia`);
                 await chat.sendMessage('Não foi possível baixar o arquivo para enviar por email.');
                 return;
             }
+            console.log(`[DEBUG] Mídia baixada com sucesso. MimeType: ${media.mimetype}`);
+            
             // Prepara o anexo
             const attachment = {
                 filename: tipo === 'IMAGEM' ? 'imagem.jpg' : 'documento.pdf',
                 content: Buffer.from(media.data, 'base64'),
                 contentType: media.mimetype
             };
+            
+            // Define o título do email baseado no texto da mensagem
+            let tituloEmail;
+            let corpoEmail;
+            
+            if (textoMensagem) {
+                tituloEmail = textoMensagem;
+                corpoEmail = `Você recebeu uma ${tipo} de ${message.author || message.from} no chat ${chat.name || chat.id.user}.\n\nTexto da mensagem: ${textoMensagem}`;
+            } else {
+                tituloEmail = `Nova mensagem (${tipo}) no chat ${chat.name || chat.id.user}`;
+                corpoEmail = `Você recebeu uma ${tipo} de ${message.author || message.from} no chat ${chat.name || chat.id.user}.`;
+            }
+            
+            console.log(`[DEBUG] Título do email: "${tituloEmail}"`);
+            console.log(`[DEBUG] Enviando email para: ${emailDestino}`);
+            
             await enviarEmail(
                 emailDestino,
-                `Nova mensagem (${tipo}) no chat ${chat.name || chat.id.user}`,
-                `Você recebeu uma ${tipo} de ${message.author || message.from} no chat ${chat.name || chat.id.user}.`,
+                tituloEmail,
+                corpoEmail,
                 attachment
             );
-            await chat.sendMessage('Notificação enviada para o email cadastrado.');
+            console.log(`[DEBUG] Email enviado com sucesso!`);
+            
+            const isDefault = !this.emailPorUsuario.get(userId);
+            const status = isDefault ? ' (email padrão)' : ' (email personalizado)';
+            const mensagemConfirmacao = textoMensagem 
+                ? `✅ ${tipo} enviada para: ${emailDestino}${status}\n📧 Título: "${textoMensagem}"`
+                : `✅ ${tipo} enviada para: ${emailDestino}${status}`;
+            
+            await chat.sendMessage(mensagemConfirmacao);
         } catch (e) {
+            console.error(`[ERRO] Erro ao processar mídia:`, e);
             await chat.sendMessage(`Erro ao enviar email: ${e.message}`);
         }
     }
@@ -100,7 +145,7 @@ class BotHandler {
     }
 
     async handleInstrucao(chat) {
-        await chat.sendMessage('TESTE-DE-BOT-PESSOAL_Envie uma imagem ou PDF para receber por email, ou envie #CONFIG para configurar seu email de notificação.');
+        await chat.sendMessage('🤖 *Bot WhatsApp Ativo*\n\n📧 *Email padrão configurado:* samal@cs-consoft.com.br\n\n📋 *Como usar:*\n• Envie uma *imagem* ou *PDF* para receber por email\n• Adicione um *texto junto com a imagem* para usar como título do email\n• Digite *#CONFIG* para configurar email personalizado\n\n✅ Pronto para receber seus arquivos!');
     }
 }
 
@@ -112,8 +157,124 @@ const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const express = require('express');
 const { log } = require('console');
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
+
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+
+// Detecta se está rodando no Docker
+function isRunningInDocker() {
+    try {
+        return fs.existsSync('/.dockerenv') || 
+               fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker') ||
+               process.env.DOCKER_ENV === 'true';
+    } catch (err) {
+        return false;
+    }
+}
+
+const IS_DOCKER = isRunningInDocker();
+console.log(`Executando em: ${IS_DOCKER ? 'Docker' : 'Local'}`);
+
+// Configurações baseadas no ambiente
+const getConfig = () => {
+    if (IS_DOCKER) {
+        return {
+            authDataPath: '/app/.wwebjs_auth',
+            puppeteerConfig: {
+                executablePath: '/usr/bin/chromium-browser',
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--no-zygote',
+                    '--single-process',
+                    '--disable-gpu'
+                ]
+            }
+        };
+    } else {
+        // Configuração para Windows/Local
+        const isWindows = process.platform === 'win32';
+        return {
+            authDataPath: path.join(__dirname, '.wwebjs_auth'),
+            puppeteerConfig: {
+                headless: 'new', // Usa o novo modo headless
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-accelerated-2d-canvas',
+                    '--no-first-run',
+                    '--disable-extensions',
+                    '--disable-plugins',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-features=TranslateUI',
+                    '--disable-ipc-flooding-protection',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    ...(isWindows ? ['--disable-gpu', '--disable-software-rasterizer'] : [])
+                ]
+            }
+        };
+    }
+};
+
+const config = getConfig();
+
+// Função para limpar sessão automaticamente
+function limparSessaoAutomaticamente() {
+    console.log('🧹 Limpando sessão anterior automaticamente...');
+    
+    if (fs.existsSync(config.authDataPath)) {
+        try {
+            // No Windows, usa o comando del/rmdir para ser mais eficiente
+            const { execSync } = require('child_process');
+            const isWindows = process.platform === 'win32';
+            
+            if (isWindows) {
+                // Usa comando do Windows para remover forçadamente
+                try {
+                    execSync(`rmdir /s /q "${config.authDataPath}"`, { stdio: 'ignore' });
+                    console.log('✅ Sessão anterior removida com sucesso (método Windows)!');
+                    return;
+                } catch (cmdError) {
+                    console.log('⚠️  Comando Windows falhou, tentando método Node.js...');
+                }
+            }
+            
+            // Fallback para método Node.js
+            fs.rmSync(config.authDataPath, { recursive: true, force: true });
+            console.log('✅ Sessão anterior removida com sucesso!');
+            
+        } catch (error) {
+            console.error('❌ Erro ao remover sessão anterior:', error.message);
+            console.log('🔧 Tentando método alternativo...');
+            
+            // Método alternativo: renomear a pasta para forçar nova sessão
+            try {
+                const backupPath = config.authDataPath + '_backup_' + Date.now();
+                fs.renameSync(config.authDataPath, backupPath);
+                console.log('✅ Sessão anterior movida para backup!');
+                console.log('📝 Pasta de backup criada:', path.basename(backupPath));
+            } catch (renameError) {
+                console.error('❌ Método alternativo também falhou:', renameError.message);
+                console.log('⚠️  Continuando mesmo assim... Forçando novo QR Code.');
+            }
+        }
+    } else {
+        console.log('ℹ️  Nenhuma sessão anterior encontrada.');
+    }
+}
+
+// Limpa a sessão automaticamente sempre que o bot iniciar
+limparSessaoAutomaticamente();
 
 let ultimoQR = null; // Armazena o último QR gerado
 let qrMostrado = false; // Controla se o QR já foi exibido
@@ -122,37 +283,75 @@ let qrGerado = false; // Nova variável para controlar se já foi gerado
 // Nome exato do grupo que será monitorado
 const NOME_GRUPO = "GRUPO_X"; // Altere para o nome real do seu grupo
 
-// Cria o cliente do WhatsApp com autenticação local (sessão salva em disco)
-const client = new Client({
-    authStrategy: new LocalAuth({
-        dataPath: '/app/.wwebjs_auth'
-    }),
-    puppeteer: {
-        executablePath: '/usr/bin/chromium-browser',
-        args: [
-            '--no-sandbox',
-            '--disable-setuid-sandbox',
-            '--disable-dev-shm-usage',
-            '--disable-accelerated-2d-canvas',
-            '--no-first-run',
-            '--no-zygote',
-            '--single-process',
-            '--disable-gpu'
-        ]
+// Função para criar o cliente com tratamento de erro
+function createClient() {
+    try {
+        // Força sempre uma nova sessão usando um ID único
+        const sessionId = 'session_' + Date.now();
+        const client = new Client({
+            authStrategy: new LocalAuth({
+                dataPath: config.authDataPath,
+                clientId: sessionId
+            }),
+            puppeteer: config.puppeteerConfig
+        });
+
+        // Tratamento de erros do cliente
+        client.on('auth_failure', msg => {
+            console.error('Falha na autenticação:', msg);
+            console.log('Dica: Tente apagar a pasta .wwebjs_auth e escanear o QR Code novamente');
+        });
+
+        client.on('disconnected', (reason) => {
+            console.log('❌ Cliente desconectado:', reason);
+            console.log('🔄 Resetando estado do QR Code...');
+            qrGerado = false;
+            qrMostrado = false;
+            ultimoQR = null;
+            console.log('⚠️  Bot desconectado! Reinicie o bot para gerar um novo QR Code.');
+        });
+
+        return client;
+    } catch (error) {
+        console.error('Erro ao criar cliente:', error);
+        throw error;
+    }
+}
+
+// Cria o cliente do WhatsApp
+console.log('🚀 Criando cliente WhatsApp...');
+const client = createClient();
+console.log('✅ Cliente WhatsApp criado com sucesso!');
+console.log('⏳ Aguardando autenticação ou QR Code...');
+
+// Tratamento de erros não capturados
+process.on('unhandledRejection', (reason, promise) => {
+    console.log('Unhandled Rejection capturado e ignorado:', reason?.message || reason);
+    // Não mata o processo, apenas loga o erro
+});
+
+process.on('uncaughtException', (error) => {
+    console.log('Uncaught Exception:', error?.message || error);
+    // Em ambiente de desenvolvimento, não mata o processo por este tipo de erro
+    if (!IS_DOCKER) {
+        console.log('Continuando execução...');
+        return;
     }
 });
 
 // Evento disparado quando o QR Code deve ser exibido no terminal e salvo para web
 client.on('qr', qr => {
-       // Só gera o QR uma vez por sessão
-    if (qrGerado) return;
+    console.log("🔄 Novo QR Code recebido!");
     
     qrGerado = true;
     qrMostrado = true;
     ultimoQR = qr;
+    
+    // Gera o QR no terminal
     qrcode.generate(qr, {small: true});
-    console.log("QR Code gerado! Escaneie com o WhatsApp (Aparelhos conectados).");
-    console.log("Acesse o QR Code via web em uma das URLs mostradas acima.");
+    console.log("📱 QR Code gerado! Escaneie com o WhatsApp (Aparelhos conectados).");
+    console.log("🌐 Acesse o QR Code via web em: http://localhost:3000/qr");
+    console.log("⏰ O QR Code expira em alguns minutos, se não funcionar, reinicie o bot.");
 });
 
 // Rota para exibir o QR Code como imagem na web
@@ -194,55 +393,74 @@ app.get('/qr', async (req, res) => {
     }
 });
 
-// Inicia o servidor web em todas as interfaces (necessário para Docker)
-app.listen(PORT, '0.0.0.0', () => {
-    const os = require('os');
+// Inicia o servidor web 
+const bindAddress = IS_DOCKER ? '0.0.0.0' : 'localhost';
+app.listen(PORT, bindAddress, () => {
     const ifaces = os.networkInterfaces();
     let urls = [];
-    Object.values(ifaces).forEach(ifaceList => {
-        ifaceList.forEach(iface => {
-            if (iface.family === 'IPv4' && !iface.internal) {
-                urls.push(`http://${iface.address}:${PORT}/qr`);
-            }
-        });
-    });
-    if (urls.length === 0) {
+    
+    // Para ambiente local, mostrar apenas localhost
+    if (!IS_DOCKER) {
         urls.push(`http://localhost:${PORT}/qr`);
+    } else {
+        // Para Docker, mostrar todos os IPs disponíveis
+        Object.values(ifaces).forEach(ifaceList => {
+            ifaceList.forEach(iface => {
+                if (iface.family === 'IPv4' && !iface.internal) {
+                    urls.push(`http://${iface.address}:${PORT}/qr`);
+                }
+            });
+        });
+        if (urls.length === 0) {
+            urls.push(`http://0.0.0.0:${PORT}/qr`);
+        }
     }
-    console.log('Servidor web do QR Code rodando em:');
+    
+    console.log(`Servidor web do QR Code rodando em (${IS_DOCKER ? 'Docker' : 'Local'}):`);
     urls.forEach(url => console.log(url));
 });
 
 // Evento disparado quando o bot está pronto para uso
-client.on('ready', () => {
-      qrMostrado = false;
+client.on('ready', async () => {
+    qrMostrado = false;
     qrGerado = false; // Reset para permitir novo QR se deslogar
     ultimoQR = null; // Limpa o QR quando conectado
-    console.log('Bot está online!');
+    
+    console.log('🚀 Bot está online e pronto para receber mensagens!');
+    console.log('📧 Email padrão configurado: samal@cs-consoft.com.br');
+    console.log('🔧 Para configurar email personalizado, envie: #CONFIG');
+    
+    try {
+        const clientInfo = client.info;
+        console.log(`📱 Conectado como: ${clientInfo.pushname} (${clientInfo.wid.user})`);
+    } catch (error) {
+        console.log('⚠️  Não foi possível obter informações do cliente, mas bot está funcional');
+    }
 });
 
 // Evento disparado para cada mensagem recebida
-
-// Novo evento para quando a sessão é perdida
-client.on('disconnected', (reason) => {
-    console.log('Cliente desconectado:', reason);
-    qrGerado = false; // Permite gerar novo QR
-    qrMostrado = false;
-    ultimoQR = null;
-});
-
 client.on('message', async message => {
-    const chat = await message.getChat();
-    // Só responde mensagens privadas (ignora grupos)
-    console.log(chat.isGroup);
-    
-    if (chat.isGroup) {
-        return;
-    }
-    console.log(chat);
-    
-    console.log(`Mensagem recebida de ${message.from}: ${message.body}`);
-    const userId = botHandler.getUserId(message);
+    try {
+        const chat = await message.getChat();
+        console.log(`[DEBUG] Mensagem recebida - Tipo: ${chat.isGroup ? 'GRUPO' : 'PRIVADO'}`);
+        console.log(`[DEBUG] De: ${message.from}`);
+        console.log(`[DEBUG] Conteúdo: ${message.body}`);
+        console.log(`[DEBUG] Tipo da mensagem: ${message.type}`);
+        
+        if (chat.isGroup) {
+            console.log(`[DEBUG] Nome do grupo: ${chat.name}`);
+            // Se NOME_GRUPO estiver configurado como "GRUPO_X", isso significa que você deve alterar
+            // para o nome real do seu grupo. Por enquanto, vou permitir processar TODOS os grupos
+            // ou configurar para processar apenas o grupo específico
+            if (NOME_GRUPO !== "GRUPO_X" && chat.name !== NOME_GRUPO) {
+                console.log(`[DEBUG] Ignorando grupo "${chat.name}" - apenas processando "${NOME_GRUPO}"`);
+                return;
+            }
+            console.log(`[DEBUG] Processando mensagem do grupo: ${chat.name}`);
+        }
+        
+        console.log(`[DEBUG] Processando mensagem privada...`);
+        const userId = botHandler.getUserId(message);
 
     // Checagem de modo de configuração
     if (botHandler.isConfigMode(userId)) {
@@ -270,6 +488,21 @@ client.on('message', async message => {
 
     // Qualquer outra mensagem
     await botHandler.handleInstrucao(chat);
+    
+    } catch (error) {
+        console.error(`[ERRO] Erro ao processar mensagem de ${message.from}:`, error);
+        console.error(`[ERRO] Stack trace:`, error.stack);
+        
+        try {
+            const chat = await message.getChat();
+            await chat.sendMessage('❌ Ocorreu um erro interno. Tente novamente em alguns segundos.');
+        } catch (chatError) {
+            console.error(`[ERRO] Não foi possível enviar mensagem de erro:`, chatError);
+        }
+    }
 });
 
+console.log('🔧 Inicializando cliente WhatsApp...');
+console.log('📱 Se você já tem uma sessão salva, o bot conectará automaticamente.');
+console.log('🔑 Se não, um QR Code será gerado para autenticação.');
 client.initialize();
