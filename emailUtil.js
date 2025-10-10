@@ -22,7 +22,7 @@ async function enviarEmail(destino, assunto, texto, attachment) {
             },
         });
 
-        console.log(`[EMAIL] Configuração SMTP: ${'email-ssl.com.br'}:${587}`);
+        console.log(`[EMAIL] Configuração SMTP: ${process.env.SMTP_HOST || 'email-ssl.com.br'}:${process.env.SMTP_PORT || 587}`);
 
         let mailOptions = {
             from: 'Bot Whatsapp <samal@cs-consoft.com.br>',

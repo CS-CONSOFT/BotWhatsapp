@@ -152,7 +152,7 @@ class BotHandler {
 const botHandler = new BotHandler();
 
 // Importa as classes necessárias do whatsapp-web.js e libs para QR Code e servidor web
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const { Client, NoAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const QRCode = require('qrcode');
 const express = require('express');
@@ -178,11 +178,10 @@ function isRunningInDocker() {
 const IS_DOCKER = isRunningInDocker();
 console.log(`Executando em: ${IS_DOCKER ? 'Docker' : 'Local'}`);
 
-// Configurações baseadas no ambiente
+// Configurações baseadas no ambiente (apenas Puppeteer, sem authDataPath)
 const getConfig = () => {
     if (IS_DOCKER) {
         return {
-            authDataPath: '/app/.wwebjs_auth',
             puppeteerConfig: {
                 executablePath: '/usr/bin/chromium-browser',
                 args: [
@@ -201,7 +200,6 @@ const getConfig = () => {
         // Configuração para Windows/Local
         const isWindows = process.platform === 'win32';
         return {
-            authDataPath: path.join(__dirname, '.wwebjs_auth'),
             puppeteerConfig: {
                 headless: 'new', // Usa o novo modo headless
                 args: [
@@ -228,53 +226,10 @@ const getConfig = () => {
 
 const config = getConfig();
 
-// Função para limpar sessão automaticamente
-function limparSessaoAutomaticamente() {
-    console.log('🧹 Limpando sessão anterior automaticamente...');
-    
-    if (fs.existsSync(config.authDataPath)) {
-        try {
-            // No Windows, usa o comando del/rmdir para ser mais eficiente
-            const { execSync } = require('child_process');
-            const isWindows = process.platform === 'win32';
-            
-            if (isWindows) {
-                // Usa comando do Windows para remover forçadamente
-                try {
-                    execSync(`rmdir /s /q "${config.authDataPath}"`, { stdio: 'ignore' });
-                    console.log('✅ Sessão anterior removida com sucesso (método Windows)!');
-                    return;
-                } catch (cmdError) {
-                    console.log('⚠️  Comando Windows falhou, tentando método Node.js...');
-                }
-            }
-            
-            // Fallback para método Node.js
-            fs.rmSync(config.authDataPath, { recursive: true, force: true });
-            console.log('✅ Sessão anterior removida com sucesso!');
-            
-        } catch (error) {
-            console.error('❌ Erro ao remover sessão anterior:', error.message);
-            console.log('🔧 Tentando método alternativo...');
-            
-            // Método alternativo: renomear a pasta para forçar nova sessão
-            try {
-                const backupPath = config.authDataPath + '_backup_' + Date.now();
-                fs.renameSync(config.authDataPath, backupPath);
-                console.log('✅ Sessão anterior movida para backup!');
-                console.log('📝 Pasta de backup criada:', path.basename(backupPath));
-            } catch (renameError) {
-                console.error('❌ Método alternativo também falhou:', renameError.message);
-                console.log('⚠️  Continuando mesmo assim... Forçando novo QR Code.');
-            }
-        }
-    } else {
-        console.log('ℹ️  Nenhuma sessão anterior encontrada.');
-    }
-}
+// Função removida - com NoAuth não precisamos limpar sessão
 
-// Limpa a sessão automaticamente sempre que o bot iniciar
-limparSessaoAutomaticamente();
+// Com NoAuth, não precisamos limpar sessão pois ela nunca é salva
+console.log('🚫 Modo sem sessão ativado - sempre será necessário escanear QR code');
 
 let ultimoQR = null; // Armazena o último QR gerado
 let qrMostrado = false; // Controla se o QR já foi exibido
@@ -286,13 +241,9 @@ const NOME_GRUPO = "GRUPO_X"; // Altere para o nome real do seu grupo
 // Função para criar o cliente com tratamento de erro
 function createClient() {
     try {
-        // Força sempre uma nova sessão usando um ID único
-        const sessionId = 'session_' + Date.now();
+        // Usa NoAuth para sempre forçar novo QR Code - sem salvar sessão
         const client = new Client({
-            authStrategy: new LocalAuth({
-                dataPath: config.authDataPath,
-                clientId: sessionId
-            }),
+            authStrategy: new NoAuth(),
             puppeteer: config.puppeteerConfig
         });
 
@@ -613,6 +564,6 @@ client.on('message', async message => {
 });
 
 console.log('🔧 Inicializando cliente WhatsApp...');
-console.log('📱 Se você já tem uma sessão salva, o bot conectará automaticamente.');
-console.log('🔑 Se não, um QR Code será gerado para autenticação.');
+console.log('� Modo sem sessão: SEMPRE será necessário escanear um novo QR Code.');
+console.log('♻️  Isso garante que o bot conecte do zero a cada reinicialização.');
 client.initialize();

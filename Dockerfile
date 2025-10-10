@@ -1,7 +1,7 @@
-# Use Node.js 20 Alpine para imagem menor
-FROM node:20-alpine
+# Use a imagem oficial do Node.js com Alpine Linux para menor tamanho
+FROM node:18-alpine
 
-# Instalar dependências necessárias para Chromium e init system
+# Instala dependências necessárias para Puppeteer/Chromium
 RUN apk add --no-cache \
     chromium \
     nss \
@@ -10,45 +10,43 @@ RUN apk add --no-cache \
     harfbuzz \
     ca-certificates \
     ttf-freefont \
-    tini \
-    procps \
-    lsof
+    dumb-init \
+    && rm -rf /var/cache/apk/*
 
-# Usar tini como init process para lidar com sinais e processos zumbis
-ENTRYPOINT ["/sbin/tini", "--"]
+# Cria um usuário não-root para segurança
+RUN addgroup -g 1001 -S nodejs && adduser -S botuser -u 1001 -G nodejs
 
-# Definir diretório de trabalho
+# Define o diretório de trabalho
 WORKDIR /app
 
-# Copiar arquivos de dependências
-COPY package*.json ./
+# Copia os arquivos de dependências primeiro (para cache do Docker)
+COPY package.json package-lock.json* ./
 
-# Instalar dependências
-RUN npm ci --only=production
+# Instala as dependências do Node.js
+RUN npm ci --only=production && npm cache clean --force
 
-# Copiar código da aplicação
-COPY . .
+# Copia o código fonte
+COPY --chown=botuser:nodejs . .
 
-# Criar script de inicialização que limpa sessões antigas
-COPY --chown=node:node docker-start.sh /app/docker-start.sh
-RUN chmod +x /app/docker-start.sh
+# Define variáveis de ambiente para Docker
+ENV DOCKER_ENV=true
+ENV NODE_ENV=production
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-# Criar diretório para sessão do WhatsApp como volume
-RUN mkdir -p /app/.wwebjs_auth && \
-    chown -R node:node /app && \
-    chmod -R 755 /app/.wwebjs_auth
+# Cria diretório para dados persistentes
+RUN mkdir -p /app/data && chown -R botuser:nodejs /app/data
 
-# Declarar volume para persistir dados de autenticação
-VOLUME ["/app/.wwebjs_auth"]
+# Muda para o usuário não-root
+USER botuser
 
-# Expor porta do servidor web
+# Expõe a porta do servidor web
 EXPOSE 3000
 
-# Variáveis de ambiente para Chromium com argumentos de segurança
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser \
-    DOCKER_ENV=true \
-    NODE_ENV=production
+# Define o comando de inicialização usando dumb-init para sinais corretos
+ENTRYPOINT ["dumb-init", "--"]
+CMD ["node", "index.js"]
 
-# Usar script de inicialização que trata do EBUSY
-CMD ["/app/docker-start.sh"]
+# Healthcheck para verificar se o servidor está respondendo
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/qr || exit 1
