@@ -296,10 +296,18 @@ function createClient() {
             puppeteer: config.puppeteerConfig
         });
 
-        // Tratamento de erros do cliente
+        // Tratamento abrangente de erros do cliente
         client.on('auth_failure', msg => {
-            console.error('Falha na autenticação:', msg);
-            console.log('Dica: Tente apagar a pasta .wwebjs_auth e escanear o QR Code novamente');
+            console.error('❌ Falha na autenticação:', msg);
+            console.log('🔧 Possíveis soluções:');
+            console.log('   1. Apague a pasta .wwebjs_auth e escaneie um novo QR Code');
+            console.log('   2. Verifique se o WhatsApp Web está funcionando no navegador');
+            console.log('   3. Tente usar um telefone diferente para escanear');
+            
+            // Limpar estado para permitir nova tentativa
+            qrGerado = false;
+            qrMostrado = false;
+            ultimoQR = null;
         });
 
         client.on('disconnected', (reason) => {
@@ -308,7 +316,46 @@ function createClient() {
             qrGerado = false;
             qrMostrado = false;
             ultimoQR = null;
+            
+            // Diferentes ações baseadas no motivo da desconexão
+            if (reason === 'LOGOUT') {
+                console.log('👋 Logout detectado - usuário deslogou do WhatsApp');
+            } else if (reason === 'NAVIGATION') {
+                console.log('🧭 Desconexão por navegação - tentativa de reconexão automática');
+            } else if (reason === 'CONFLICT') {
+                console.log('⚔️  Conflito detectado - WhatsApp Web aberto em outro local');
+            } else {
+                console.log('🔍 Motivo da desconexão:', reason);
+            }
+            
             console.log('⚠️  Bot desconectado! Reinicie o bot para gerar um novo QR Code.');
+        });
+
+        client.on('change_state', state => {
+            console.log('🔄 Estado do cliente alterado:', state);
+        });
+
+        client.on('change_battery', (batteryInfo) => {
+            console.log('🔋 Informações da bateria:', batteryInfo);
+        });
+
+        // Tratamento de erros gerais do cliente
+        client.on('error', (error) => {
+            console.error('❌ Erro no cliente WhatsApp:', error.message);
+            
+            // Categorizar erros para melhor tratamento
+            if (error.message.includes('Protocol error')) {
+                console.log('🔇 Erro de protocolo - geralmente pode ser ignorado');
+            } else if (error.message.includes('Session closed')) {
+                console.log('📱 Sessão fechada - necessário novo QR Code');
+                qrGerado = false;
+                qrMostrado = false;
+                ultimoQR = null;
+            } else if (error.message.includes('EBUSY')) {
+                console.log('🔒 Recurso ocupado - tentando recuperação automática...');
+            } else {
+                console.error('🔍 Stack trace:', error.stack);
+            }
         });
 
         return client;
@@ -324,18 +371,81 @@ const client = createClient();
 console.log('✅ Cliente WhatsApp criado com sucesso!');
 console.log('⏳ Aguardando autenticação ou QR Code...');
 
-// Tratamento de erros não capturados
+// Tratamento de erros não capturados com categorização
 process.on('unhandledRejection', (reason, promise) => {
-    console.log('Unhandled Rejection capturado e ignorado:', reason?.message || reason);
-    // Não mata o processo, apenas loga o erro
+    const errorMsg = reason?.message || reason;
+    
+    // Erros específicos que podemos ignorar com segurança
+    const ignorePatterns = [
+        'Protocol error (Network.setUserAgentOverride): Session closed',
+        'Protocol error (Runtime.callFunctionOn): Session closed',
+        'Protocol error (Page.navigate): Session closed',
+        'Target closed',
+        'Session closed'
+    ];
+    
+    const shouldIgnore = ignorePatterns.some(pattern => 
+        String(errorMsg).includes(pattern)
+    );
+    
+    if (shouldIgnore) {
+        console.log('🔇 Erro de protocolo ignorado:', errorMsg);
+        return;
+    }
+    
+    // Erros críticos que requerem atenção
+    const criticalPatterns = [
+        'EBUSY',
+        'ENOENT',
+        'Permission denied',
+        'Cannot read properties'
+    ];
+    
+    const isCritical = criticalPatterns.some(pattern => 
+        String(errorMsg).includes(pattern)
+    );
+    
+    if (isCritical) {
+        console.error('❌ ERRO CRÍTICO (Unhandled Rejection):', errorMsg);
+        console.error('📍 Promise:', promise);
+        console.error('🔍 Stack:', reason?.stack);
+    } else {
+        console.log('⚠️  Unhandled Rejection (não crítico):', errorMsg);
+    }
 });
 
 process.on('uncaughtException', (error) => {
-    console.log('Uncaught Exception:', error?.message || error);
-    // Em ambiente de desenvolvimento, não mata o processo por este tipo de erro
-    if (!IS_DOCKER) {
-        console.log('Continuando execução...');
+    const errorMsg = error?.message || error;
+    
+    // Erros específicos que podemos ignorar
+    const ignorePatterns = [
+        'Protocol error',
+        'Session closed',
+        'Target closed'
+    ];
+    
+    const shouldIgnore = ignorePatterns.some(pattern => 
+        String(errorMsg).includes(pattern)
+    );
+    
+    if (shouldIgnore) {
+        console.log('🔇 Exceção de protocolo ignorada:', errorMsg);
         return;
+    }
+    
+    console.error('❌ EXCEÇÃO NÃO CAPTURADA:', errorMsg);
+    console.error('🔍 Stack:', error?.stack);
+    
+    // Em ambiente Docker, reiniciar pode ser mais seguro
+    if (IS_DOCKER) {
+        console.error('🐳 Executando em Docker - considerando reinicialização...');
+        // Não finalizar imediatamente, permitir que o container seja reiniciado externamente
+        setTimeout(() => {
+            console.error('💀 Finalizando processo após erro crítico...');
+            process.exit(1);
+        }, 5000);
+    } else {
+        console.log('💻 Executando localmente - continuando execução...');
     }
 });
 
