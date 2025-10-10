@@ -40,13 +40,12 @@ RUN mkdir -p /app/data && chown -R botuser:nodejs /app/data
 # Muda para o usuário não-root
 USER botuser
 
-# Expõe a porta do servidor web
-EXPOSE 3000
+# Porta não necessária - bot apenas no terminal
 
 # Define o comando de inicialização usando dumb-init para sinais corretos
 ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "index.js"]
 
-# Healthcheck para verificar se o servidor está respondendo
+# Healthcheck simples para verificar se o processo está rodando
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost:3000/qr || exit 1
+    CMD pgrep -f "node index.js" || exit 1

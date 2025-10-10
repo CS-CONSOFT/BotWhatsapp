@@ -151,18 +151,14 @@ class BotHandler {
 
 const botHandler = new BotHandler();
 
-// Importa as classes necessárias do whatsapp-web.js e libs para QR Code e servidor web
+// Importa as classes necessárias do whatsapp-web.js e libs para QR Code
 const { Client, NoAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
-const QRCode = require('qrcode');
-const express = require('express');
 const { log } = require('console');
 const path = require('path');
-const os = require('os');
 const fs = require('fs');
 
-const app = express();
-const PORT = process.env.PORT || 3000;
+
 
 // Detecta se está rodando no Docker
 function isRunningInDocker() {
@@ -400,7 +396,7 @@ process.on('uncaughtException', (error) => {
     }
 });
 
-// Evento disparado quando o QR Code deve ser exibido no terminal e salvo para web
+// Evento disparado quando o QR Code deve ser exibido no terminal
 client.on('qr', qr => {
     console.log("🔄 Novo QR Code recebido!");
     
@@ -411,75 +407,10 @@ client.on('qr', qr => {
     // Gera o QR no terminal
     qrcode.generate(qr, {small: true});
     console.log("📱 QR Code gerado! Escaneie com o WhatsApp (Aparelhos conectados).");
-    console.log("🌐 Acesse o QR Code via web em: http://localhost:3000/qr");
     console.log("⏰ O QR Code expira em alguns minutos, se não funcionar, reinicie o bot.");
 });
 
-// Rota para exibir o QR Code como imagem na web
-app.get('/qr', async (req, res) => {
-    if (!ultimoQR) {
-        return res.status(404).send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>QR Code WhatsApp</title>
-                <meta http-equiv="refresh" content="5">
-            </head>
-            <body>
-                <h2>Aguardando QR Code...</h2>
-                <p>O QR Code ainda não foi gerado ou o bot já está conectado.</p>
-                <p>Esta página será atualizada automaticamente a cada 5 segundos.</p>
-            </body>
-            </html>
-        `);
-    }
-    try {
-        const qrImage = await QRCode.toDataURL(ultimoQR);
-        res.send(`
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>QR Code WhatsApp</title>
-            </head>
-            <body>
-                <h2>Escaneie o QR Code abaixo:</h2>
-                <img src="${qrImage}" style="max-width: 400px;" />
-                <p><strong>Importante:</strong> Este QR Code é único para esta sessão.</p>
-                <p>Após escanear, o bot estará conectado e não será necessário escanear novamente.</p>
-            </body>
-            </html>
-        `);
-    } catch (err) {
-        res.status(500).send('Erro ao gerar QR Code');
-    }
-});
 
-// Inicia o servidor web 
-const bindAddress = IS_DOCKER ? '0.0.0.0' : 'localhost';
-app.listen(PORT, bindAddress, () => {
-    const ifaces = os.networkInterfaces();
-    let urls = [];
-    
-    // Para ambiente local, mostrar apenas localhost
-    if (!IS_DOCKER) {
-        urls.push(`http://localhost:${PORT}/qr`);
-    } else {
-        // Para Docker, mostrar todos os IPs disponíveis
-        Object.values(ifaces).forEach(ifaceList => {
-            ifaceList.forEach(iface => {
-                if (iface.family === 'IPv4' && !iface.internal) {
-                    urls.push(`http://${iface.address}:${PORT}/qr`);
-                }
-            });
-        });
-        if (urls.length === 0) {
-            urls.push(`http://0.0.0.0:${PORT}/qr`);
-        }
-    }
-    
-    console.log(`Servidor web do QR Code rodando em (${IS_DOCKER ? 'Docker' : 'Local'}):`);
-    urls.forEach(url => console.log(url));
-});
 
 // Evento disparado quando o bot está pronto para uso
 client.on('ready', async () => {
