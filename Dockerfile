@@ -50,8 +50,5 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     DOCKER_ENV=true \
     NODE_ENV=production
 
-# Mudar para usuário não-root por segurança
-USER node
-
 # Usar script de inicialização que trata do EBUSY
 CMD ["/app/docker-start.sh"]
