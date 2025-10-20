@@ -1,30 +1,20 @@
-FROM node:18-alpine
+# Dockerfile corrigido
+FROM node:18-bullseye-slim
 
 WORKDIR /app
 
-# Instalar dependências completas para Chromium
-RUN apk add --no-cache \
-    chromium \
-    nss \
-    freetype \
-    freetype-dev \
-    harfbuzz \
-    ca-certificates \
-    ttf-freefont \
-    && rm -rf /var/cache/apk/*
+RUN apt-get update && apt-get install -y chromium libnss3 libatk-bridge2.0-0 libgtk-3-0 \
+    libx11-xcb1 libgbm1 libasound2 fonts-noto-color-emoji ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copiar e instalar
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV NODE_ENV=production
+ENV DOCKER_ENV=true
+
 COPY package*.json ./
-RUN npm install
+RUN npm ci --only=production && npm cache clean --force
 
 COPY . .
-
-# Configurar Chromium com argumentos necessários
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-ENV CHROME_BIN=/usr/bin/chromium-browser
-ENV CHROME_PATH=/usr/bin/chromium-browser
-
-EXPOSE 3005
-
+USER node
 CMD ["node", "index.js"]

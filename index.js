@@ -78,14 +78,14 @@ class BotHandler {
     async handleMedia(message, chat, userId) {
         let tipo = message.type === 'image' ? 'IMAGEM' : 'PDF';
         console.log(`[${chat.name || chat.id.user}] ${message.author || message.from}: Enviou uma ${tipo}.`);
-        
+
         // Captura o texto/legenda da mensagem
         const textoMensagem = message.body ? message.body.trim() : '';
         console.log(`[DEBUG] Texto da mensagem: "${textoMensagem}"`);
-        
+
         const emailDestino = this.getEmail(userId); // Usa a função getEmail que já tem o email padrão
         console.log(`[DEBUG] Processando ${tipo} para envio para: ${emailDestino}`);
-        
+
         try {
             // Baixa o arquivo da mensagem
             console.log(`[DEBUG] Tentando baixar mídia...`);
@@ -96,18 +96,18 @@ class BotHandler {
                 return;
             }
             console.log(`[DEBUG] Mídia baixada com sucesso. MimeType: ${media.mimetype}`);
-            
+
             // Prepara o anexo
             const attachment = {
                 filename: tipo === 'IMAGEM' ? 'imagem.jpg' : 'documento.pdf',
                 content: Buffer.from(media.data, 'base64'),
                 contentType: media.mimetype
             };
-            
+
             // Define o título do email baseado no texto da mensagem
             let tituloEmail;
             let corpoEmail;
-            
+
             if (textoMensagem) {
                 tituloEmail = textoMensagem;
                 corpoEmail = `Você recebeu uma ${tipo} de ${message.author || message.from} no chat ${chat.name || chat.id.user}.\n\nTexto da mensagem: ${textoMensagem}`;
@@ -115,10 +115,10 @@ class BotHandler {
                 tituloEmail = `Nova mensagem (${tipo}) no chat ${chat.name || chat.id.user}`;
                 corpoEmail = `Você recebeu uma ${tipo} de ${message.author || message.from} no chat ${chat.name || chat.id.user}.`;
             }
-            
+
             console.log(`[DEBUG] Título do email: "${tituloEmail}"`);
             console.log(`[DEBUG] Enviando email para: ${emailDestino}`);
-            
+
             await enviarEmail(
                 emailDestino,
                 tituloEmail,
@@ -126,13 +126,13 @@ class BotHandler {
                 attachment
             );
             console.log(`[DEBUG] Email enviado com sucesso!`);
-            
+
             const isDefault = !this.emailPorUsuario.get(userId);
             const status = isDefault ? ' (email padrão)' : ' (email personalizado)';
-            const mensagemConfirmacao = textoMensagem 
+            const mensagemConfirmacao = textoMensagem
                 ? `✅ ${tipo} enviada para: ${emailDestino}${status}\n📧 Título: "${textoMensagem}"`
                 : `✅ ${tipo} enviada para: ${emailDestino}${status}`;
-            
+
             await chat.sendMessage(mensagemConfirmacao);
         } catch (e) {
             console.error(`[ERRO] Erro ao processar mídia:`, e);
@@ -163,9 +163,9 @@ const fs = require('fs');
 // Detecta se está rodando no Docker
 function isRunningInDocker() {
     try {
-        return fs.existsSync('/.dockerenv') || 
-               fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker') ||
-               process.env.DOCKER_ENV === 'true';
+        return fs.existsSync('/.dockerenv') ||
+            fs.readFileSync('/proc/1/cgroup', 'utf8').includes('docker') ||
+            process.env.DOCKER_ENV === 'true';
     } catch (err) {
         return false;
     }
@@ -178,48 +178,27 @@ console.log(`Executando em: ${IS_DOCKER ? 'Docker' : 'Local'}`);
 const getConfig = () => {
     if (IS_DOCKER) {
         return {
-            puppeteerConfig: {
-                executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/chromium-browser',
-    args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-accelerated-2d-canvas',
-        '--no-first-run',
-        '--no-zygote',
-        '--single-process',
-        '--disable-gpu',
-        '--disable-background-timer-throttling',
-        '--disable-backgrounding-occluded-windows',
-        '--disable-renderer-backgrounding'
-    ]
-            }
+         puppeteer: {
+  headless: true,
+  executablePath: '/usr/bin/chromium',
+  args: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage',
+    '--disable-gpu',
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--disable-sync',
+    '--mute-audio',
+    '--disable-ipc-flooding-protection',
+    '--window-size=1920,1080'
+  ]
+}
+
+
         };
     } else {
-        // Configuração para Windows/Local
-        const isWindows = process.platform === 'win32';
-        return {
-            puppeteerConfig: {
-                headless: 'new', // Usa o novo modo headless
-                args: [
-                    '--no-sandbox',
-                    '--disable-setuid-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--disable-accelerated-2d-canvas',
-                    '--no-first-run',
-                    '--disable-extensions',
-                    '--disable-plugins',
-                    '--disable-background-timer-throttling',
-                    '--disable-backgrounding-occluded-windows',
-                    '--disable-renderer-backgrounding',
-                    '--disable-features=TranslateUI',
-                    '--disable-ipc-flooding-protection',
-                    '--disable-web-security',
-                    '--disable-features=VizDisplayCompositor',
-                    ...(isWindows ? ['--disable-gpu', '--disable-software-rasterizer'] : [])
-                ]
-            }
-        };
+        return {};
     }
 };
 
@@ -240,77 +219,52 @@ const NOME_GRUPO = "GRUPO_X"; // Altere para o nome real do seu grupo
 // Função para criar o cliente com tratamento de erro
 function createClient() {
     try {
-        // Usa NoAuth para sempre forçar novo QR Code - sem salvar sessão
+        console.log('🔧 Configurações do cliente:', JSON.stringify(config, null, 2));
+
         const client = new Client({
             authStrategy: new NoAuth(),
-            puppeteer: config.puppeteerConfig
+            ...config
         });
 
-        // Tratamento abrangente de erros do cliente
-        client.on('auth_failure', msg => {
-            console.error('❌ Falha na autenticação:', msg);
-            console.log('🔧 Possíveis soluções:');
-            console.log('   1. Apague a pasta .wwebjs_auth e escaneie um novo QR Code');
-            console.log('   2. Verifique se o WhatsApp Web está funcionando no navegador');
-            console.log('   3. Tente usar um telefone diferente para escanear');
-            
-            // Limpar estado para permitir nova tentativa
-            qrGerado = false;
-            qrMostrado = false;
-            ultimoQR = null;
-        });
+        // Adicionar listeners para debug
+        if (IS_DOCKER) {
+            client.on('disconnected', (reason) => {
+                console.log('🔌 Cliente desconectado:', reason);
+            });
 
-        client.on('disconnected', (reason) => {
-            console.log('❌ Cliente desconectado:', reason);
-            console.log('🔄 Resetando estado do QR Code...');
-            qrGerado = false;
-            qrMostrado = false;
-            ultimoQR = null;
-            
-            // Diferentes ações baseadas no motivo da desconexão
-            if (reason === 'LOGOUT') {
-                console.log('👋 Logout detectado - usuário deslogou do WhatsApp');
-            } else if (reason === 'NAVIGATION') {
-                console.log('🧭 Desconexão por navegação - tentativa de reconexão automática');
-            } else if (reason === 'CONFLICT') {
-                console.log('⚔️  Conflito detectado - WhatsApp Web aberto em outro local');
-            } else {
-                console.log('🔍 Motivo da desconexão:', reason);
-            }
-            
-            console.log('⚠️  Bot desconectado! Reinicie o bot para gerar um novo QR Code.');
-        });
-
-        client.on('change_state', state => {
-            console.log('🔄 Estado do cliente alterado:', state);
-        });
-
-        client.on('change_battery', (batteryInfo) => {
-            console.log('🔋 Informações da bateria:', batteryInfo);
-        });
-
-        // Tratamento de erros gerais do cliente
-        client.on('error', (error) => {
-            console.error('❌ Erro no cliente WhatsApp:', error.message);
-            
-            // Categorizar erros para melhor tratamento
-            if (error.message.includes('Protocol error')) {
-                console.log('🔇 Erro de protocolo - geralmente pode ser ignorado');
-            } else if (error.message.includes('Session closed')) {
-                console.log('📱 Sessão fechada - necessário novo QR Code');
-                qrGerado = false;
-                qrMostrado = false;
-                ultimoQR = null;
-            } else if (error.message.includes('EBUSY')) {
-                console.log('🔒 Recurso ocupado - tentando recuperação automática...');
-            } else {
-                console.error('🔍 Stack trace:', error.stack);
-            }
-        });
+            client.on('auth_failure', (msg) => {
+                console.log('❌ Falha na autenticação:', msg);
+            });
+        }
 
         return client;
     } catch (error) {
-        console.error('Erro ao criar cliente:', error);
+        console.error('❌ Erro ao criar cliente WhatsApp:', error.message);
+        console.error('🔍 Stack completo:', error.stack);
+
+        if (IS_DOCKER) {
+            console.log('🐳 Tentando configuração alternativa para Docker...');
+
+            // Configuração mais minimalista
+            const fallbackClient = new Client({
+                authStrategy: new NoAuth(),
+                puppeteer: {
+                    headless: true,
+                    args: [
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-dev-shm-usage',
+                        '--disable-gpu',
+                        '--single-process'
+                    ],
+                    executablePath: '/usr/bin/chromium-browser',
+                    timeout: 30000
+                }
+            });
+
+            return fallbackClient;
+        }
+
         throw error;
     }
 }
@@ -324,7 +278,7 @@ console.log('⏳ Aguardando autenticação ou QR Code...');
 // Tratamento de erros não capturados com categorização
 process.on('unhandledRejection', (reason, promise) => {
     const errorMsg = reason?.message || reason;
-    
+
     // Erros específicos que podemos ignorar com segurança
     const ignorePatterns = [
         'Protocol error (Network.setUserAgentOverride): Session closed',
@@ -333,16 +287,16 @@ process.on('unhandledRejection', (reason, promise) => {
         'Target closed',
         'Session closed'
     ];
-    
-    const shouldIgnore = ignorePatterns.some(pattern => 
+
+    const shouldIgnore = ignorePatterns.some(pattern =>
         String(errorMsg).includes(pattern)
     );
-    
+
     if (shouldIgnore) {
         console.log('🔇 Erro de protocolo ignorado:', errorMsg);
         return;
     }
-    
+
     // Erros críticos que requerem atenção
     const criticalPatterns = [
         'EBUSY',
@@ -350,11 +304,11 @@ process.on('unhandledRejection', (reason, promise) => {
         'Permission denied',
         'Cannot read properties'
     ];
-    
-    const isCritical = criticalPatterns.some(pattern => 
+
+    const isCritical = criticalPatterns.some(pattern =>
         String(errorMsg).includes(pattern)
     );
-    
+
     if (isCritical) {
         console.error('❌ ERRO CRÍTICO (Unhandled Rejection):', errorMsg);
         console.error('📍 Promise:', promise);
@@ -366,26 +320,26 @@ process.on('unhandledRejection', (reason, promise) => {
 
 process.on('uncaughtException', (error) => {
     const errorMsg = error?.message || error;
-    
+
     // Erros específicos que podemos ignorar
     const ignorePatterns = [
         'Protocol error',
         'Session closed',
         'Target closed'
     ];
-    
-    const shouldIgnore = ignorePatterns.some(pattern => 
+
+    const shouldIgnore = ignorePatterns.some(pattern =>
         String(errorMsg).includes(pattern)
     );
-    
+
     if (shouldIgnore) {
         console.log('🔇 Exceção de protocolo ignorada:', errorMsg);
         return;
     }
-    
+
     console.error('❌ EXCEÇÃO NÃO CAPTURADA:', errorMsg);
     console.error('🔍 Stack:', error?.stack);
-    
+
     // Em ambiente Docker, reiniciar pode ser mais seguro
     if (IS_DOCKER) {
         console.error('🐳 Executando em Docker - considerando reinicialização...');
@@ -402,13 +356,13 @@ process.on('uncaughtException', (error) => {
 // Evento disparado quando o QR Code deve ser exibido no terminal
 client.on('qr', qr => {
     console.log("🔄 Novo QR Code recebido!");
-    
+
     qrGerado = true;
     qrMostrado = true;
     ultimoQR = qr;
-    
+
     // Gera o QR no terminal
-    qrcode.generate(qr, {small: true});
+    qrcode.generate(qr, { small: true });
     console.log("📱 QR Code gerado! Escaneie com o WhatsApp (Aparelhos conectados).");
     console.log("⏰ O QR Code expira em alguns minutos, se não funcionar, reinicie o bot.");
 });
@@ -420,11 +374,11 @@ client.on('ready', async () => {
     qrMostrado = false;
     qrGerado = false; // Reset para permitir novo QR se deslogar
     ultimoQR = null; // Limpa o QR quando conectado
-    
+
     console.log('🚀 Bot está online e pronto para receber mensagens!');
     console.log('📧 Email padrão configurado: samal@cs-consoft.com.br');
     console.log('🔧 Para configurar email personalizado, envie: #CONFIG');
-    
+
     try {
         const clientInfo = client.info;
         console.log(`📱 Conectado como: ${clientInfo.pushname} (${clientInfo.wid.user})`);
@@ -441,7 +395,7 @@ client.on('message', async message => {
         console.log(`[DEBUG] De: ${message.from}`);
         console.log(`[DEBUG] Conteúdo: ${message.body}`);
         console.log(`[DEBUG] Tipo da mensagem: ${message.type}`);
-        
+
         if (chat.isGroup) {
             console.log(`[DEBUG] Nome do grupo: ${chat.name}`);
             // Se NOME_GRUPO estiver configurado como "GRUPO_X", isso significa que você deve alterar
@@ -453,41 +407,41 @@ client.on('message', async message => {
             }
             console.log(`[DEBUG] Processando mensagem do grupo: ${chat.name}`);
         }
-        
+
         console.log(`[DEBUG] Processando mensagem privada...`);
         const userId = botHandler.getUserId(message);
 
-    // Checagem de modo de configuração
-    if (botHandler.isConfigMode(userId)) {
-        await botHandler.handleConfig(message, chat, userId);
-        return;
-    }
+        // Checagem de modo de configuração
+        if (botHandler.isConfigMode(userId)) {
+            await botHandler.handleConfig(message, chat, userId);
+            return;
+        }
 
-    // Ativação do modo de configuração
-    if (message.body.trim().toUpperCase() === '#CONFIG') {
-        await botHandler.startConfig(message, chat, userId);
-        return;
-    }
+        // Ativação do modo de configuração
+        if (message.body.trim().toUpperCase() === '#CONFIG') {
+            await botHandler.startConfig(message, chat, userId);
+            return;
+        }
 
-    // Checagem de mídia
-    if (message.type === 'image' || (message.type === 'document' && message._data && message._data.mimetype === 'application/pdf')) {
-        await botHandler.handleMedia(message, chat, userId);
-        return;
-    }
+        // Checagem de mídia
+        if (message.type === 'image' || (message.type === 'document' && message._data && message._data.mimetype === 'application/pdf')) {
+            await botHandler.handleMedia(message, chat, userId);
+            return;
+        }
 
-    // Outros documentos
-    if (message.type === 'document') {
-        await botHandler.handleDocument(message, chat);
-        return;
-    }
+        // Outros documentos
+        if (message.type === 'document') {
+            await botHandler.handleDocument(message, chat);
+            return;
+        }
 
-    // Qualquer outra mensagem
-    await botHandler.handleInstrucao(chat);
-    
+        // Qualquer outra mensagem
+        await botHandler.handleInstrucao(chat);
+
     } catch (error) {
         console.error(`[ERRO] Erro ao processar mensagem de ${message.from}:`, error);
         console.error(`[ERRO] Stack trace:`, error.stack);
-        
+
         try {
             const chat = await message.getChat();
             await chat.sendMessage('❌ Ocorreu um erro interno. Tente novamente em alguns segundos.');
