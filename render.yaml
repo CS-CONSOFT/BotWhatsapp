@@ -14,4 +14,13 @@ services:
     value: "true"
   - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
     value: "false"
+  # Opcional: Para pular QR Code completamente
+  - key: SKIP_QR_CODE
+    value: "true"
+  # Opcional: Sessão pré-configurada (substitua por sessão real)
+  # - key: WHATSAPP_SESSION_DATA
+  #   value: "eyJzZXNzaW9uIjoiZGF0YSJ9..."
+  # Opcional: MongoDB para autenticação persistente no Render
+  # - key: MONGODB_URI
+  #   value: mongodb+srv://username:password@cluster.mongodb.net/whatsapp-bot
   healthCheckPath: /health

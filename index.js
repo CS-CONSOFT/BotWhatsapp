@@ -152,7 +152,7 @@ class BotHandler {
 const botHandler = new BotHandler();
 
 // Importa as classes necessárias do whatsapp-web.js e libs para QR Code
-const { Client, NoAuth } = require('whatsapp-web.js');
+const { Client, LocalAuth, RemoteAuth, NoAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const { log } = require('console');
 const path = require('path');
@@ -255,14 +255,246 @@ const getConfig = () => {
 
 const config = getConfig();
 
-// Função removida - com NoAuth não precisamos limpar sessão
+// Função para configurar autenticação persistente
+function getAuthStrategy() {
+    const isRender = isRenderEnvironment();
+    
+    // Verificar se existe sessão pré-configurada
+    const preConfiguredSession = checkPreConfiguredSession();
+    
+    if (preConfiguredSession) {
+        console.log('🔑 Usando sessão pré-configurada - ZERO QR Code necessário!');
+        return preConfiguredSession;
+    }
+    
+    if (isRender && process.env.MONGODB_URI) {
+        // Render com MongoDB - Autenticação remota persistente
+        console.log('🔐 Configurando autenticação REMOTA (MongoDB)');
+        try {
+            const { MongoStore } = require('wwebjs-mongo');
+            const mongoose = require('mongoose');
+            
+            mongoose.connect(process.env.MONGODB_URI);
+            const store = new MongoStore({ mongoose: mongoose });
+            
+            return new RemoteAuth({
+                store: store,
+                backupSyncIntervalMs: 300000,
+                clientId: "whatsapp-bot-csconsoft"
+            });
+        } catch (error) {
+            console.log('❌ Erro ao configurar MongoDB, usando LocalAuth como fallback');
+            return getLocalAuth();
+        }
+    } else {
+        // Local/Docker/Render sem MongoDB - Autenticação local persistente
+        return getLocalAuth();
+    }
+}
 
-// Com NoAuth, não precisamos limpar sessão pois ela nunca é salva
-console.log('🚫 Modo sem sessão ativado - sempre será necessário escanear QR code');
+// Verificar se existe sessão pré-configurada
+function checkPreConfiguredSession() {
+    try {
+        // Verificar se existe arquivo de sessão pré-configurado
+        const preSessionPath = './pre-configured-session';
+        const authPath = './wwebjs_auth';
+        
+        if (fs.existsSync(preSessionPath)) {
+            console.log('📁 Sessão pré-configurada encontrada!');
+            
+            // Copiar sessão pré-configurada para o local correto
+            if (!fs.existsSync(authPath)) {
+                fs.mkdirSync(authPath, { recursive: true });
+            }
+            
+            // Copiar todos os arquivos da sessão
+            const files = fs.readdirSync(preSessionPath);
+            files.forEach(file => {
+                const srcPath = path.join(preSessionPath, file);
+                const destPath = path.join(authPath, file);
+                
+                if (fs.statSync(srcPath).isDirectory()) {
+                    copyDirectory(srcPath, destPath);
+                } else {
+                    fs.copyFileSync(srcPath, destPath);
+                }
+            });
+            
+            console.log('✅ Sessão pré-configurada copiada com sucesso!');
+            return new LocalAuth({
+                clientId: "whatsapp-bot-csconsoft",
+                dataPath: authPath
+            });
+        }
+        
+        // Verificar variável de ambiente com sessão codificada
+        if (process.env.WHATSAPP_SESSION_DATA) {
+            console.log('🔑 Restaurando sessão de variável de ambiente...');
+            return restoreSessionFromEnv();
+        }
+        
+        return null;
+    } catch (error) {
+        console.log('❌ Erro ao verificar sessão pré-configurada:', error.message);
+        return null;
+    }
+}
+
+// Função para copiar diretório recursivamente
+function copyDirectory(src, dest) {
+    if (!fs.existsSync(dest)) {
+        fs.mkdirSync(dest, { recursive: true });
+    }
+    
+    const files = fs.readdirSync(src);
+    files.forEach(file => {
+        const srcPath = path.join(src, file);
+        const destPath = path.join(dest, file);
+        
+        if (fs.statSync(srcPath).isDirectory()) {
+            copyDirectory(srcPath, destPath);
+        } else {
+            fs.copyFileSync(srcPath, destPath);
+        }
+    });
+}
+
+// Restaurar sessão de variável de ambiente
+function restoreSessionFromEnv() {
+    try {
+        const sessionData = JSON.parse(Buffer.from(process.env.WHATSAPP_SESSION_DATA, 'base64').toString());
+        const authPath = './wwebjs_auth';
+        
+        if (!fs.existsSync(authPath)) {
+            fs.mkdirSync(authPath, { recursive: true });
+        }
+        
+        // Escrever dados da sessão
+        Object.keys(sessionData).forEach(fileName => {
+            const filePath = path.join(authPath, fileName);
+            const dirPath = path.dirname(filePath);
+            
+            if (!fs.existsSync(dirPath)) {
+                fs.mkdirSync(dirPath, { recursive: true });
+            }
+            
+            fs.writeFileSync(filePath, sessionData[fileName]);
+        });
+        
+        console.log('✅ Sessão restaurada de variável de ambiente!');
+        return new LocalAuth({
+            clientId: "whatsapp-bot-csconsoft",
+            dataPath: authPath
+        });
+    } catch (error) {
+        console.log('❌ Erro ao restaurar sessão de variável de ambiente:', error.message);
+        return null;
+    }
+}
+
+function getLocalAuth() {
+    console.log('🔐 Configurando autenticação LOCAL (persistente)');
+    
+    // Usar número de telefone como identificador da sessão
+    const phoneNumber = process.env.WHATSAPP_PHONE || process.env.PHONE_NUMBER || "default";
+    const sessionName = `whatsapp-bot-${phoneNumber}`;
+    const authPath = `./sessions/${sessionName}`;
+    
+    // Garantir que o diretório existe
+    if (!fs.existsSync(authPath)) {
+        fs.mkdirSync(authPath, { recursive: true });
+        console.log(`📁 Criado diretório de autenticação: ${authPath}`);
+    }
+    
+    console.log(`📱 Sessão configurada para: ${phoneNumber}`);
+    
+    return new LocalAuth({
+        clientId: sessionName,
+        dataPath: authPath
+    });
+}
+
+// Configurar estratégia de autenticação
+const authStrategy = getAuthStrategy();
+
+// Autenticação persistente configurada - QR Code apenas na primeira vez
+console.log('✅ Modo de autenticação PERSISTENTE ativado');
+console.log('📱 QR Code necessário APENAS na primeira execução');
+console.log('🔄 Execuções seguintes conectarão automaticamente');
 
 let ultimoQR = null; // Armazena o último QR gerado
 let qrMostrado = false; // Controla se o QR já foi exibido
 let qrGerado = false; // Nova variável para controlar se já foi gerado
+let sessaoExiste = false; // Verifica se já existe sessão salva
+
+// Verificar se já existe sessão salva
+function verificarSessaoExistente() {
+    try {
+        const authPath = './wwebjs_auth';
+        if (fs.existsSync(authPath)) {
+            const files = fs.readdirSync(authPath);
+            sessaoExiste = files.length > 0;
+            
+            if (sessaoExiste) {
+                console.log('✅ Sessão existente encontrada - conectando automaticamente...');
+                console.log('🚫 QR Code NÃO será necessário!');
+            } else {
+                console.log('⚠️  Primeira execução - QR Code será necessário UMA vez');
+            }
+        }
+    } catch (error) {
+        console.log('🔍 Verificando sessão pela primeira vez...');
+        sessaoExiste = false;
+    }
+    
+    return sessaoExiste;
+}
+
+// Verificar sessão existente
+verificarSessaoExistente();
+
+// Função para exportar dados da sessão
+function exportSessionData() {
+    try {
+        const authPath = './wwebjs_auth';
+        if (!fs.existsSync(authPath)) {
+            console.log('❌ Nenhuma sessão encontrada para exportar');
+            return;
+        }
+        
+        const sessionData = {};
+        
+        function readDirectory(dirPath, basePath = '') {
+            const files = fs.readdirSync(dirPath);
+            
+            files.forEach(file => {
+                const fullPath = path.join(dirPath, file);
+                const relativePath = basePath ? path.join(basePath, file) : file;
+                
+                if (fs.statSync(fullPath).isDirectory()) {
+                    readDirectory(fullPath, relativePath);
+                } else {
+                    sessionData[relativePath] = fs.readFileSync(fullPath);
+                }
+            });
+        }
+        
+        readDirectory(authPath);
+        
+        // Converter para base64 para facilitar transporte
+        const sessionBase64 = Buffer.from(JSON.stringify(sessionData)).toString('base64');
+        
+        // Salvar em arquivo
+        fs.writeFileSync('./session-export.txt', sessionBase64);
+        
+        console.log('✅ Sessão exportada para: ./session-export.txt');
+        console.log('🔑 Use este arquivo para configurar WHATSAPP_SESSION_DATA');
+        console.log('📋 Conteúdo do arquivo pode ser usado como variável de ambiente');
+        
+    } catch (error) {
+        console.log('❌ Erro ao exportar sessão:', error.message);
+    }
+}
 
 // Nome exato do grupo que será monitorado
 const NOME_GRUPO = "GRUPO_X"; // Altere para o nome real do seu grupo
@@ -282,7 +514,7 @@ function createClient() {
         }
 
         const client = new Client({
-            authStrategy: new NoAuth(),
+            authStrategy: authStrategy,
             ...config
         });
 
@@ -323,7 +555,7 @@ function createClient() {
 
             // Configuração mais minimalista
             const fallbackClient = new Client({
-                authStrategy: new NoAuth(),
+                authStrategy: authStrategy,
                 puppeteer: {
                     headless: true,
                     args: [
@@ -452,7 +684,24 @@ process.on('uncaughtException', (error) => {
 
 // Evento disparado quando o QR Code deve ser exibido no terminal
 client.on('qr', qr => {
-    console.log("🔄 Novo QR Code recebido!");
+    if (sessaoExiste) {
+        console.log("⚠️ QR Code solicitado mesmo com sessão existente - pode haver problema na sessão");
+        console.log("�️ Limpando sessão corrompida...");
+        
+        // Limpar sessão corrompida
+        try {
+            const authPath = './wwebjs_auth';
+            if (fs.existsSync(authPath)) {
+                fs.rmSync(authPath, { recursive: true, force: true });
+                console.log("✅ Sessão corrompida removida");
+            }
+        } catch (error) {
+            console.log("❌ Erro ao limpar sessão:", error.message);
+        }
+    }
+
+    console.log("📱 PRIMEIRA EXECUÇÃO - QR Code necessário para configuração inicial");
+    console.log("🔄 Após escanear, o bot lembrará da sessão PERMANENTEMENTE");
 
     qrGerado = true;
     qrMostrado = true;
@@ -461,7 +710,31 @@ client.on('qr', qr => {
     // Gera o QR no terminal
     qrcode.generate(qr, { small: true });
     console.log("📱 QR Code gerado! Escaneie com o WhatsApp (Aparelhos conectados).");
+    console.log("🎯 IMPORTANTE: Após escanear, QR Code NUNCA mais será necessário!");
     console.log("⏰ O QR Code expira em alguns minutos, se não funcionar, reinicie o bot.");
+});
+
+// Evento disparado quando a autenticação é bem-sucedida
+client.on('authenticated', () => {
+    console.log('🔐 Autenticação realizada com sucesso!');
+    console.log('💾 Sessão será salva para próximas execuções');
+    console.log('🚫 QR Code não será mais necessário!');
+});
+
+// Evento disparado em caso de falha na autenticação
+client.on('auth_failure', msg => {
+    console.log('❌ Falha na autenticação:', msg);
+    console.log('🗑️ Limpando possível sessão corrompida...');
+    
+    try {
+        const authPath = './wwebjs_auth';
+        if (fs.existsSync(authPath)) {
+            fs.rmSync(authPath, { recursive: true, force: true });
+            console.log("✅ Sessão corrompida removida - reinicie o bot");
+        }
+    } catch (error) {
+        console.log("❌ Erro ao limpar sessão:", error.message);
+    }
 });
 
 
@@ -471,7 +744,9 @@ client.on('ready', async () => {
     console.log('✅ Bot do WhatsApp está pronto e funcionando!');
     console.log('📱 Conectado como:', client.info.wid.user);
     console.log('📞 Nome:', client.info.pushname);
-    console.log('💬 Pronto para receber mensagens PRIVADAS!');
+    console.log('� SESSÃO SALVA - Próximas execuções conectarão automaticamente!');
+    console.log('🚫 QR Code NUNCA mais será necessário (até logout manual)');
+    console.log('�💬 Pronto para receber mensagens PRIVADAS!');
     console.log('📧 Email padrão configurado: samal@cs-consoft.com.br');
     console.log('');
     console.log('📋 Como usar:');
@@ -480,6 +755,16 @@ client.on('ready', async () => {
     console.log('   • Digite #CONFIG para configurar email personalizado');
     console.log('');
     console.log('🔄 Aguardando mensagens...');
+    
+    // Marcar que a sessão foi estabelecida com sucesso
+    sessaoExiste = true;
+    
+    // Exportar sessão para backup (se solicitado)
+    if (process.env.EXPORT_SESSION === 'true') {
+        setTimeout(() => {
+            exportSessionData();
+        }, 5000);
+    }
     
     // Testar se consegue receber eventos
     setTimeout(() => {
@@ -588,7 +873,13 @@ client.on('disconnected', (reason) => {
 console.log('🔧 Inicializando cliente WhatsApp...');
 console.log('💬 Modo APENAS conversas privadas ativado');
 console.log('🚫 Mensagens de grupo serão ignoradas');
-console.log('♻️ Sempre será necessário escanear um novo QR Code');
+console.log('💾 Autenticação PERSISTENTE - QR Code apenas na primeira vez');
+
+if (sessaoExiste) {
+    console.log('🚀 Conectando automaticamente com sessão salva...');
+} else {
+    console.log('⚠️ Primeira execução - QR Code será solicitado UMA vez');
+}
 
 // Adicionar delay em ambiente Docker para estabilizar
 if (IS_DOCKER) {

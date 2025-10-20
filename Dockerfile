@@ -38,6 +38,12 @@ RUN npm ci --only=production && npm cache clean --force
 # Copiar código
 COPY . .
 
+# Criar diretório para sessão persistente
+RUN mkdir -p /app/wwebjs_auth && chown node:node /app/wwebjs_auth
+
+# Volume para persistir autenticação
+VOLUME ["/app/wwebjs_auth"]
+
 # Usar usuário node (não root)
 USER node
 
