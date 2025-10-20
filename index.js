@@ -1,25 +1,3 @@
-const http = require('http');
-
-// Criar servidor HTTP simples para health check
-const server = http.createServer((req, res) => {
-    if (req.url === '/health') {
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-            status: 'ok', 
-            timestamp: new Date().toISOString(),
-            bot_connected: client && client.info ? true : false
-        }));
-    } else {
-        res.writeHead(404, { 'Content-Type': 'text/plain' });
-        res.end('Not Found');
-    }
-});
-
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`🌐 Health check server rodando na porta ${PORT}`);
-});
-
 // Carrega variáveis de ambiente do arquivo .env (apenas em ambiente local)
 if (!process.env.DOCKER_ENV) {
     try {
@@ -196,9 +174,45 @@ function isRunningInDocker() {
 const IS_DOCKER = isRunningInDocker();
 console.log(`Executando em: ${IS_DOCKER ? 'Docker' : 'Local'}`);
 
+// Detectar ambiente Render
+function isRenderEnvironment() {
+    return process.env.RENDER === 'true' || 
+           process.env.NODE_ENV === 'production' || 
+           process.env.PORT || 
+           process.env.RENDER_SERVICE_ID;
+}
+
 // Configurações baseadas no ambiente (apenas Puppeteer, sem authDataPath)
 const getConfig = () => {
-    if (IS_DOCKER) {
+    const isRender = isRenderEnvironment();
+    
+    if (isRender) {
+        console.log('🌐 Ambiente Render detectado - usando configuração para produção');
+        return {
+            puppeteer: {
+                headless: true,
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-extensions',
+                    '--no-first-run',
+                    '--disable-default-apps',
+                    '--disable-translate',
+                    '--disable-sync',
+                    '--hide-scrollbars',
+                    '--mute-audio',
+                    '--disable-background-timer-throttling',
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-ipc-flooding-protection'
+                ],
+                timeout: 60000
+            }
+        };
+    } else if (IS_DOCKER) {
+        console.log('🐳 Ambiente Docker detectado');
         return {
             puppeteer: {
                 headless: true,
@@ -223,6 +237,7 @@ const getConfig = () => {
             }
         };
     } else {
+        console.log('💻 Ambiente local detectado');
         return {};
     }
 };
@@ -315,6 +330,27 @@ console.log('🚀 Criando cliente WhatsApp...');
 const client = createClient();
 console.log('✅ Cliente WhatsApp criado com sucesso!');
 console.log('⏳ Aguardando autenticação ou QR Code...');
+
+// Criar servidor HTTP para health check (para Render)
+const http = require('http');
+const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+            status: 'ok', 
+            timestamp: new Date().toISOString(),
+            bot_connected: client && client.info ? true : false
+        }));
+    } else {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`🌐 Health check server rodando na porta ${PORT}`);
+});
 
 // Tratamento de erros não capturados com categorização
 process.on('unhandledRejection', (reason, promise) => {

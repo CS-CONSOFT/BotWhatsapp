@@ -1,0 +1,17 @@
+services:
+- type: web
+  name: whatsapp-bot-csconsoft
+  runtime: node
+  buildCommand: npm install
+  startCommand: node index.js
+  plan: free
+  envVars:
+  - key: EMAIL_PADRAO
+    value: samal@cs-consoft.com.br
+  - key: NODE_ENV
+    value: production
+  - key: RENDER
+    value: "true"
+  - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+    value: "false"
+  healthCheckPath: /health
