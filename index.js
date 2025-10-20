@@ -182,6 +182,15 @@ function isRenderEnvironment() {
            process.env.RENDER_SERVICE_ID;
 }
 
+// Limpar variáveis de ambiente problemáticas no Render
+if (isRenderEnvironment()) {
+    console.log('🌐 Limpando variáveis de ambiente problemáticas...');
+    delete process.env.PUPPETEER_EXECUTABLE_PATH;
+    delete process.env.CHROME_BIN;
+    delete process.env.GOOGLE_CHROME_BIN;
+    process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD = 'false';
+}
+
 // Configurações baseadas no ambiente (apenas Puppeteer, sem authDataPath)
 const getConfig = () => {
     const isRender = isRenderEnvironment();
@@ -191,6 +200,7 @@ const getConfig = () => {
         return {
             puppeteer: {
                 headless: true,
+                // Não especificar executablePath - deixar Puppeteer escolher
                 args: [
                     '--no-sandbox',
                     '--disable-setuid-sandbox',
@@ -208,7 +218,8 @@ const getConfig = () => {
                     '--disable-renderer-backgrounding',
                     '--disable-ipc-flooding-protection'
                 ],
-                timeout: 60000
+                timeout: 60000,
+                ignoreDefaultArgs: false
             }
         };
     } else if (IS_DOCKER) {
@@ -260,6 +271,15 @@ const NOME_GRUPO = "GRUPO_X"; // Altere para o nome real do seu grupo
 function createClient() {
     try {
         console.log('🔧 Configurações do cliente:', JSON.stringify(config, null, 2));
+        
+        // Log para debug no Render
+        if (isRenderEnvironment()) {
+            console.log('🐞 Debug Render:');
+            console.log(`   - PUPPETEER_EXECUTABLE_PATH: ${process.env.PUPPETEER_EXECUTABLE_PATH || 'undefined'}`);
+            console.log(`   - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: ${process.env.PUPPETEER_SKIP_CHROMIUM_DOWNLOAD}`);
+            console.log(`   - NODE_ENV: ${process.env.NODE_ENV}`);
+            console.log(`   - RENDER: ${process.env.RENDER}`);
+        }
 
         const client = new Client({
             authStrategy: new NoAuth(),
