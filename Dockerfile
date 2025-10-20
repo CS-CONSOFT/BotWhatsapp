@@ -1,4 +1,3 @@
-# Use Node.js 20 Alpine para imagem menor
 FROM node:20-alpine
 
 # Instalar dependências necessárias para Chromium
@@ -9,7 +8,8 @@ RUN apk add --no-cache \
     freetype-dev \
     harfbuzz \
     ca-certificates \
-    ttf-freefont
+    ttf-freefont \
+    font-noto-emoji
 
 # Definir diretório de trabalho
 WORKDIR /app
@@ -23,26 +23,21 @@ RUN npm ci --only=production
 # Copiar código da aplicação
 COPY . .
 
-# Criar diretório para sessão do WhatsApp com permissões completas
-RUN mkdir -p /app/.wwebjs_auth && \
-    chown -R node:node /app && \
-    chmod -R 777 /app/.wwebjs_auth
+# Configurar variáveis de ambiente
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV DOCKER_ENV=true
+ENV NODE_ENV=production
 
-# Expor porta do servidor web
+# Criar usuário não-root
+RUN addgroup -g 1001 -S nodejs && \
+    adduser -S botuser -u 1001 -G nodejs && \
+    chown -R botuser:nodejs /app
+
+USER botuser
+
+# Expor porta
 EXPOSE 3000
 
-# Variáveis de ambiente para Chromium com argumentos de segurança
-ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
-
-# Variáveis de ambiente SMTP (podem ser sobrescritas)
-ENV SMTP_HOST='email-ssl.com.br' \
-    SMTP_PORT='587' \
-    SMTP_USER='samal@cs-consoft.com.br' \
-    SMTP_PASS='C$1234sa;'
-
-# Mudar para usuário não-root por segurança
-USER node
-
-# Comando para iniciar o bot
+# Comando para iniciar
 CMD ["node", "index.js"]
