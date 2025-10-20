@@ -1,3 +1,25 @@
+const http = require('http');
+
+// Criar servidor HTTP simples para health check
+const server = http.createServer((req, res) => {
+    if (req.url === '/health') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+            status: 'ok', 
+            timestamp: new Date().toISOString(),
+            bot_connected: client && client.info ? true : false
+        }));
+    } else {
+        res.writeHead(404, { 'Content-Type': 'text/plain' });
+        res.end('Not Found');
+    }
+});
+
+const PORT = process.env.PORT || 3000;
+server.listen(PORT, () => {
+    console.log(`🌐 Health check server rodando na porta ${PORT}`);
+});
+
 // Carrega variáveis de ambiente do arquivo .env (apenas em ambiente local)
 if (!process.env.DOCKER_ENV) {
     try {
@@ -23,7 +45,7 @@ class BotHandler {
 
     isConfigMode(userId) {
         const state = this.configState.get(userId);
-        return typeof state === 'object' && state.modoConfig;
+        return state && (state.modoConfig === true || state.modoConfig === 'aguardandoEmail');
     }
 
     setConfigMode(userId, value) {
@@ -178,24 +200,27 @@ console.log(`Executando em: ${IS_DOCKER ? 'Docker' : 'Local'}`);
 const getConfig = () => {
     if (IS_DOCKER) {
         return {
-         puppeteer: {
-  headless: true,
-  executablePath: '/usr/bin/chromium',
-  args: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-    '--disable-gpu',
-    '--disable-extensions',
-    '--disable-background-networking',
-    '--disable-sync',
-    '--mute-audio',
-    '--disable-ipc-flooding-protection',
-    '--window-size=1920,1080'
-  ]
-}
-
-
+            puppeteer: {
+                headless: true,
+                executablePath: '/usr/bin/chromium',
+                args: [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-dev-shm-usage',
+                    '--disable-gpu',
+                    '--disable-extensions',
+                    '--disable-background-networking',
+                    '--disable-sync',
+                    '--mute-audio',
+                    '--disable-ipc-flooding-protection',
+                    '--window-size=1920,1080',
+                    '--disable-web-security',
+                    '--disable-features=VizDisplayCompositor',
+                    '--no-first-run',
+                    '--no-default-browser-check'
+                ],
+                timeout: 60000
+            }
         };
     } else {
         return {};
@@ -234,6 +259,22 @@ function createClient() {
 
             client.on('auth_failure', (msg) => {
                 console.log('❌ Falha na autenticação:', msg);
+            });
+
+            client.on('loading_screen', (percent, message) => {
+                console.log(`🔄 Carregando: ${percent}% - ${message}`);
+            });
+
+            client.on('authenticated', () => {
+                console.log('✅ Autenticado com sucesso!');
+            });
+
+            client.on('auth_failure', msg => {
+                console.log('❌ Falha na autenticação:', msg);
+            });
+
+            client.on('disconnected', (reason) => {
+                console.log('🔌 Desconectado:', reason);
             });
         }
 
@@ -371,87 +412,135 @@ client.on('qr', qr => {
 
 // Evento disparado quando o bot está pronto para uso
 client.on('ready', async () => {
-    qrMostrado = false;
-    qrGerado = false; // Reset para permitir novo QR se deslogar
-    ultimoQR = null; // Limpa o QR quando conectado
-
-    console.log('🚀 Bot está online e pronto para receber mensagens!');
+    console.log('✅ Bot do WhatsApp está pronto e funcionando!');
+    console.log('📱 Conectado como:', client.info.wid.user);
+    console.log('📞 Nome:', client.info.pushname);
+    console.log('💬 Pronto para receber mensagens PRIVADAS!');
     console.log('📧 Email padrão configurado: samal@cs-consoft.com.br');
-    console.log('🔧 Para configurar email personalizado, envie: #CONFIG');
-
-    try {
-        const clientInfo = client.info;
-        console.log(`📱 Conectado como: ${clientInfo.pushname} (${clientInfo.wid.user})`);
-    } catch (error) {
-        console.log('⚠️  Não foi possível obter informações do cliente, mas bot está funcional');
-    }
+    console.log('');
+    console.log('📋 Como usar:');
+    console.log('   • Envie uma imagem ou PDF em conversa privada');
+    console.log('   • Adicione texto junto com a imagem para usar como título');
+    console.log('   • Digite #CONFIG para configurar email personalizado');
+    console.log('');
+    console.log('🔄 Aguardando mensagens...');
+    
+    // Testar se consegue receber eventos
+    setTimeout(() => {
+        console.log('⏰ Bot ativo há 10 segundos - teste enviando uma mensagem!');
+    }, 10000);
 });
 
 // Evento disparado para cada mensagem recebida
 client.on('message', async message => {
+    console.log('🔔 MENSAGEM RECEBIDA!');
+    console.log(`📱 De ID: ${message.from}`);
+    console.log(`💬 Conteúdo: "${message.body}"`);
+    console.log(`📋 Tipo: ${message.type}`);
+    console.log(`⏰ Timestamp: ${new Date(message.timestamp * 1000)}`);
+    
     try {
         const chat = await message.getChat();
-        console.log(`[DEBUG] Mensagem recebida - Tipo: ${chat.isGroup ? 'GRUPO' : 'PRIVADO'}`);
-        console.log(`[DEBUG] De: ${message.from}`);
-        console.log(`[DEBUG] Conteúdo: ${message.body}`);
-        console.log(`[DEBUG] Tipo da mensagem: ${message.type}`);
-
+        console.log(`📁 Chat - Tipo: ${chat.isGroup ? 'GRUPO' : 'PRIVADO'}`);
+        
+        // ❌ IGNORAR MENSAGENS DE GRUPO
         if (chat.isGroup) {
-            console.log(`[DEBUG] Nome do grupo: ${chat.name}`);
-            // Se NOME_GRUPO estiver configurado como "GRUPO_X", isso significa que você deve alterar
-            // para o nome real do seu grupo. Por enquanto, vou permitir processar TODOS os grupos
-            // ou configurar para processar apenas o grupo específico
-            if (NOME_GRUPO !== "GRUPO_X" && chat.name !== NOME_GRUPO) {
-                console.log(`[DEBUG] Ignorando grupo "${chat.name}" - apenas processando "${NOME_GRUPO}"`);
-                return;
-            }
-            console.log(`[DEBUG] Processando mensagem do grupo: ${chat.name}`);
-        }
-
-        console.log(`[DEBUG] Processando mensagem privada...`);
-        const userId = botHandler.getUserId(message);
-
-        // Checagem de modo de configuração
-        if (botHandler.isConfigMode(userId)) {
-            await botHandler.handleConfig(message, chat, userId);
+            console.log(`⏭️ IGNORANDO mensagem de grupo: "${chat.name}"`);
+            console.log(`💬 Bot funciona APENAS em conversas privadas!`);
             return;
         }
 
-        // Ativação do modo de configuração
-        if (message.body.trim().toUpperCase() === '#CONFIG') {
+        console.log(`✅ Processando mensagem privada...`);
+
+        const userId = botHandler.getUserId(message);
+        console.log(`👤 User ID: ${userId}`);
+
+        // Verificar se é comando de configuração
+        if (message.body.toUpperCase() === '#CONFIG') {
+            console.log('⚙️ Comando #CONFIG detectado');
             await botHandler.startConfig(message, chat, userId);
             return;
         }
 
-        // Checagem de mídia
-        if (message.type === 'image' || (message.type === 'document' && message._data && message._data.mimetype === 'application/pdf')) {
-            await botHandler.handleMedia(message, chat, userId);
+        // Se estiver em modo config
+        if (botHandler.isConfigMode(userId)) {
+            console.log('📧 Processando configuração...');
+            await botHandler.handleConfig(message, chat, userId);
             return;
         }
 
-        // Outros documentos
-        if (message.type === 'document') {
-            await botHandler.handleDocument(message, chat);
-            return;
+        // Verificar se tem mídia
+        if (message.hasMedia) {
+            console.log('📎 Mensagem com mídia detectada!');
+            console.log(`📋 Tipo de mídia: ${message.type}`);
+            
+            const media = await message.downloadMedia();
+            console.log(`📊 Mídia baixada - Tipo: ${media.mimetype}, Tamanho: ${media.data.length} bytes`);
+            
+            if (media.mimetype.startsWith('image/') || media.mimetype === 'application/pdf') {
+                console.log('✅ Tipo de arquivo aceito, processando...');
+                await botHandler.handleMedia(message, chat, userId);
+            } else {
+                console.log(`❌ Tipo de arquivo não suportado: ${media.mimetype}`);
+                await message.reply('❌ Apenas imagens (JPG, PNG) e PDFs são aceitos.');
+            }
+        } else {
+            console.log('💬 Mensagem sem mídia (apenas texto)');
+            
+            // Responder com instruções se for apenas texto
+            if (message.body.toLowerCase().includes('help') || 
+                message.body.toLowerCase().includes('ajuda') || 
+                message.body === '?') {
+                await botHandler.handleInstrucao(chat);
+            }
         }
-
-        // Qualquer outra mensagem
-        await botHandler.handleInstrucao(chat);
 
     } catch (error) {
-        console.error(`[ERRO] Erro ao processar mensagem de ${message.from}:`, error);
-        console.error(`[ERRO] Stack trace:`, error.stack);
-
+        console.error('❌ Erro ao processar mensagem:', error);
+        console.error('📊 Stack trace:', error.stack);
+        
         try {
-            const chat = await message.getChat();
-            await chat.sendMessage('❌ Ocorreu um erro interno. Tente novamente em alguns segundos.');
-        } catch (chatError) {
-            console.error(`[ERRO] Não foi possível enviar mensagem de erro:`, chatError);
+            await message.reply('❌ Ocorreu um erro ao processar sua mensagem. Tente novamente.');
+        } catch (replyError) {
+            console.error('❌ Erro ao enviar resposta de erro:', replyError);
         }
     }
 });
 
+
+// Adicionar mais listeners para debug
+client.on('message_create', async message => {
+    console.log('🆕 message_create disparado');
+});
+
+client.on('message_revoke_everyone', async (after, before) => {
+    console.log('🗑️ Mensagem deletada para todos');
+});
+
+client.on('message_ack', (message, ack) => {
+    console.log(`📬 ACK da mensagem: ${ack}`);
+});
+
+client.on('change_state', state => {
+    console.log('🔄 Estado mudou para:', state);
+});
+
+client.on('disconnected', (reason) => {
+    console.log('🔌 Cliente desconectado:', reason);
+});
+
 console.log('🔧 Inicializando cliente WhatsApp...');
-console.log('� Modo sem sessão: SEMPRE será necessário escanear um novo QR Code.');
-console.log('♻️  Isso garante que o bot conecte do zero a cada reinicialização.');
-client.initialize();
+console.log('💬 Modo APENAS conversas privadas ativado');
+console.log('🚫 Mensagens de grupo serão ignoradas');
+console.log('♻️ Sempre será necessário escanear um novo QR Code');
+
+// Adicionar delay em ambiente Docker para estabilizar
+if (IS_DOCKER) {
+    console.log('🐳 Aguardando 3 segundos para estabilizar ambiente Docker...');
+    setTimeout(() => {
+        console.log('🚀 Iniciando cliente...');
+        client.initialize();
+    }, 3000);
+} else {
+    client.initialize();
+}

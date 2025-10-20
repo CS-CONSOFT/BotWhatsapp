@@ -1,0 +1,19 @@
+services:
+- type: web
+  name: whatsapp-bot-csconsoft
+  env: node
+  buildCommand: npm install
+  startCommand: node index.js
+  plan: free
+  envVars:
+  - key: EMAIL_PADRAO
+    value: samal@cs-consoft.com.br
+  - key: DOCKER_ENV
+    value: false
+  - key: NODE_ENV
+    value: production
+  - key: PUPPETEER_SKIP_CHROMIUM_DOWNLOAD
+    value: true
+  - key: PUPPETEER_EXECUTABLE_PATH
+    value: /usr/bin/google-chrome-stable
+  healthCheckPath: /health
