@@ -36,10 +36,10 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
     PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 # Variáveis de ambiente SMTP (podem ser sobrescritas)
-ENV SMTP_HOST=smtp.cs-consoft.com.br \
-    SMTP_PORT=587 \
-    SMTP_USER="samal@cs-consoft.com.br" \
-    SMTP_PASS="C$1234sa;"
+ENV SMTP_HOST='email-ssl.com.br' \
+    SMTP_PORT='587' \
+    SMTP_USER='samal@cs-consoft.com.br' \
+    SMTP_PASS='C$1234sa;'
 
 # Mudar para usuário não-root por segurança
 USER node

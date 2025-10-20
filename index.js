@@ -194,44 +194,118 @@ client.on('ready', () => {
 
 
 client.on('message', async message => {
-    const chat = await message.getChat();
-    // Só responde mensagens privadas (ignora grupos)
-    console.log(chat.isGroup);
+    console.log('🔔 MENSAGEM RECEBIDA!');
+    console.log(`📱 De ID: ${message.from}`);
+    console.log(`💬 Conteúdo: "${message.body}"`);
+    console.log(`📋 Tipo: ${message.type}`);
+    console.log(`⏰ Timestamp: ${new Date(message.timestamp * 1000)}`);
     
-    if (chat.isGroup) {
-        return;
-    }
-    console.log(chat);
-    
-    console.log(`Mensagem recebida de ${message.from}: ${message.body}`);
-    const userId = botHandler.getUserId(message);
+    try {
+        const chat = await message.getChat();
+        console.log(`📁 Chat - Tipo: ${chat.isGroup ? 'GRUPO' : 'PRIVADO'}`);
+        
+        // ❌ IGNORAR MENSAGENS DE GRUPO
+        if (chat.isGroup) {
+            console.log(`⏭️ IGNORANDO mensagem de grupo: "${chat.name}"`);
+            console.log(`💬 Bot funciona APENAS em conversas privadas!`);
+            return;
+        }
 
-    // Checagem de modo de configuração
-    if (botHandler.isConfigMode(userId)) {
-        await botHandler.handleConfig(message, chat, userId);
-        return;
-    }
+        console.log(`✅ Processando mensagem privada...`);
 
-    // Ativação do modo de configuração
-    if (message.body.trim().toUpperCase() === '#CONFIG') {
-        await botHandler.startConfig(message, chat, userId);
-        return;
-    }
+        // REMOVER TODA LÓGICA DE CONFIGURAÇÃO DE EMAIL
+        // Não mais verificar #CONFIG ou modo de configuração
 
-    // Checagem de mídia
-    if (message.type === 'image' || (message.type === 'document' && message._data && message._data.mimetype === 'application/pdf')) {
-        await botHandler.handleMedia(message, chat, userId);
-        return;
-    }
+        // Verificar se tem mídia
+        if (message.hasMedia) {
+            console.log('📎 Mensagem com mídia detectada!');
+            console.log(`📋 Tipo de mídia: ${message.type}`);
+            
+            const media = await message.downloadMedia();
+            console.log(`📊 Mídia baixada - Tipo: ${media.mimetype}, Tamanho: ${media.data.length} bytes`);
+            
+            if (media.mimetype.startsWith('image/') || media.mimetype === 'application/pdf') {
+                console.log('✅ Tipo de arquivo aceito, processando...');
+                
+                const contact = await message.getContact();
+                
+                // EMAIL FIXO - SEMPRE PARA SAMAL
+                const emailDestino = 'samal@cs-consoft.com.br';
+                
+                console.log(`📧 Enviando para: ${emailDestino}`);
+                console.log(`👤 De: ${contact.name || contact.pushname || 'Desconhecido'}`);
+                
+                // Preparar dados para envio
+                const attachment = {
+                    filename: media.mimetype.startsWith('image/') ? 'imagem.jpg' : 'documento.pdf',
+                    content: Buffer.from(media.data, 'base64'),
+                    contentType: media.mimetype
+                };
 
-    // Outros documentos
-    if (message.type === 'document') {
-        await botHandler.handleDocument(message, chat);
-        return;
-    }
+                const assunto = message.body ? message.body.trim() : 'Arquivo enviado via WhatsApp';
+                const corpo = `Você recebeu um arquivo de ${contact.name || contact.pushname || 'Usuário'} via WhatsApp Bot.`;
+                
+                try {
+                    await enviarEmail(emailDestino, assunto, corpo, attachment);
+                    console.log('✅ Email enviado com sucesso!');
+                    
+                    const tipoArquivo = media.mimetype.startsWith('image/') ? 'Imagem' : 'PDF';
+                    
+                    const mensagemConfirmacao = message.body 
+                        ? `✅ ${tipoArquivo} enviado para: ${emailDestino}\n📧 Título: "${message.body.trim()}"`
+                        : `✅ ${tipoArquivo} enviado para: ${emailDestino}`;
+                    
+                    await message.reply(mensagemConfirmacao);
+                } catch (emailError) {
+                    console.error('❌ Erro ao enviar email:', emailError);
+                    await message.reply('❌ Erro ao enviar arquivo por email. Tente novamente.');
+                }
+            } else {
+                console.log(`❌ Tipo de arquivo não suportado: ${media.mimetype}`);
+                await message.reply('❌ Apenas imagens (JPG, PNG) e PDFs são aceitos.');
+            }
+        } else {
+            console.log('💬 Mensagem sem mídia (apenas texto)');
+            
+            // Responder com instruções simplificadas se for apenas texto
+            if (message.body.toLowerCase().includes('help') || 
+                message.body.toLowerCase().includes('ajuda') || 
+                message.body === '?') {
+                await handleInstrucao(chat);
+            }
+        }
 
-    // Qualquer outra mensagem
-    await botHandler.handleInstrucao(chat);
+    } catch (error) {
+        console.error('❌ Erro ao processar mensagem:', error);
+        console.error('📊 Stack trace:', error.stack);
+        
+        try {
+            await message.reply('❌ Ocorreu um erro ao processar sua mensagem. Tente novamente.');
+        } catch (replyError) {
+            console.error('❌ Erro ao enviar resposta de erro:', replyError);
+        }
+    }
 });
+
+// Função de instruções simplificada (sem configuração de email)
+async function handleInstrucao(chat) {
+    const instrucoes = `🤖 *Bot WhatsApp Ativo*
+
+📧 *Destino fixo:* samal@cs-consoft.com.br
+
+📋 *Como usar:*
+• Envie uma *imagem* ou *PDF* em conversa privada
+• Adicione *texto junto com a imagem* para usar como título do email
+• O arquivo será enviado automaticamente para o email configurado
+
+⚠️ *Importante:* 
+• Bot funciona APENAS em conversas privadas
+• Não funciona em grupos
+• Não é necessário configurar email - destino é fixo
+
+✅ Pronto para receber seus arquivos!`;
+
+    await chat.sendMessage(instrucoes);
+}
 
 client.initialize();

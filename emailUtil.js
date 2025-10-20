@@ -9,7 +9,7 @@ let emailConfig = {
 async function enviarEmail(destino, assunto, texto, attachment) {
     // Configure o transporter conforme seu provedor de email
     let transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST || 'smtp.cs-consoft.com.br',
+        host: process.env.SMTP_HOST || 'email-ssl.com.br',
         port: process.env.SMTP_PORT || 587,
         secure: false, // true para 465, false para outras portas
         auth: {
