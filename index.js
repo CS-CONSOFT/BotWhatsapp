@@ -100,7 +100,7 @@ try {
 // Tratamento de erros não capturados
 process.on('unhandledRejection', (reason, promise) => {
     const errorMsg = reason?.message || reason;
-    
+
     // Erros específicos que podemos ignorar com segurança
     const ignorePatterns = [
         'Protocol error (Target.setAutoAttach): Target closed',
@@ -149,7 +149,7 @@ client.on('qr', qr => {
     console.log("🔄 Novo QR Code recebido!");
     qrMostrado = true;
     ultimoQR = qr;
-    
+
     qrcode.generate(qr, { small: true });
     console.log("📱 QR Code gerado! Escaneie com o WhatsApp (Aparelhos conectados).");
     console.log("⏰ O QR Code expira em alguns minutos, se não funcionar, reinicie o bot.");
@@ -170,8 +170,8 @@ app.get('/qr', async (req, res) => {
 
 // Health check para o Render
 app.get('/health', (req, res) => {
-    res.json({ 
-        status: 'ok', 
+    res.json({
+        status: 'ok',
         timestamp: new Date().toISOString(),
         bot_connected: client && client.info ? true : false
     });
@@ -224,11 +224,11 @@ client.on('message', async message => {
     console.log(`💬 Conteúdo: "${message.body}"`);
     console.log(`📋 Tipo: ${message.type}`);
     console.log(`⏰ Timestamp: ${new Date(message.timestamp * 1000)}`);
-    
+
     try {
         const chat = await message.getChat();
         console.log(`📁 Chat - Tipo: ${chat.isGroup ? 'GRUPO' : 'PRIVADO'}`);
-        
+
         // Ignorar mensagens de grupo
         if (chat.isGroup) {
             console.log(`⏭️ IGNORANDO mensagem de grupo: "${chat.name}"`);
@@ -242,19 +242,19 @@ client.on('message', async message => {
         if (message.hasMedia) {
             console.log('📎 Mensagem com mídia detectada!');
             console.log(`📋 Tipo de mídia: ${message.type}`);
-            
+
             const media = await message.downloadMedia();
             console.log(`📊 Mídia baixada - Tipo: ${media.mimetype}, Tamanho: ${media.data.length} bytes`);
-            
+
             if (media.mimetype.startsWith('image/') || media.mimetype === 'application/pdf') {
                 console.log('✅ Tipo de arquivo aceito, processando...');
-                
+
                 const contact = await message.getContact();
                 const emailDestino = 'samal@cs-consoft.com.br';
-                
+
                 console.log(`📧 Enviando para: ${emailDestino}`);
                 console.log(`👤 De: ${contact.name || contact.pushname || 'Desconhecido'}`);
-                
+
                 // Preparar dados para envio
                 const attachment = {
                     filename: media.mimetype.startsWith('image/') ? 'imagem.jpg' : 'documento.pdf',
@@ -264,17 +264,18 @@ client.on('message', async message => {
 
                 const assunto = message.body ? message.body.trim() : 'Arquivo enviado via WhatsApp';
                 const corpo = `Você recebeu um arquivo de ${contact.name || contact.pushname || 'Usuário'} via WhatsApp Bot.`;
-                
+
                 try {
+                    await message.reply("Enviando seu arquivo por email, aguarde...");
                     await enviarEmail(emailDestino, assunto, corpo, attachment);
                     console.log('✅ Email enviado com sucesso!');
-                    
+
                     const tipoArquivo = media.mimetype.startsWith('image/') ? 'Imagem' : 'PDF';
-                    
-                    const mensagemConfirmacao = message.body 
+
+                    const mensagemConfirmacao = message.body
                         ? `✅ ${tipoArquivo} enviado para: ${emailDestino}\n📧 Título: "${message.body.trim()}"`
                         : `✅ ${tipoArquivo} enviado para: ${emailDestino}`;
-                    
+
                     await message.reply(mensagemConfirmacao);
                 } catch (emailError) {
                     console.error('❌ Erro ao enviar email:', emailError);
@@ -286,19 +287,29 @@ client.on('message', async message => {
             }
         } else {
             console.log('💬 Mensagem sem mídia (apenas texto)');
-            
-            // Responder com instruções se solicitado
-            if (message.body.toLowerCase().includes('help') || 
-                message.body.toLowerCase().includes('ajuda') || 
-                message.body === '?') {
-                await handleInstrucao(chat);
-            }
+
+                const instrucoes = `🤖 *Bot WhatsApp Ativo*
+
+                📧 *Destino:* samal@cs-consoft.com.br
+
+                📋 *Como usar:*
+                • Envie uma *imagem* ou *PDF* em conversa privada
+                • Adicione *texto junto com a imagem* para usar como título do email
+                • O arquivo será enviado automaticamente
+
+                ⚠️ *Importante:* 
+                • Bot funciona APENAS em conversas privadas
+                • Não funciona em grupos
+
+                ✅ Pronto para receber seus arquivos!`;
+
+                await message.reply(instrucoes);
         }
 
     } catch (error) {
         console.error('❌ Erro ao processar mensagem:', error);
         console.error('📊 Stack trace:', error.stack);
-        
+
         try {
             await message.reply('❌ Ocorreu um erro ao processar sua mensagem. Tente novamente.');
         } catch (replyError) {

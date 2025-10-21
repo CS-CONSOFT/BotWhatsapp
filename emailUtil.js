@@ -7,28 +7,44 @@ let emailConfig = {
 
 
 async function enviarEmail(destino, assunto, texto, attachment) {
-    // Configure o transporter conforme seu provedor de email
-    let transporter = nodemailer.createTransport({
-        host: process.env.SMTP_HOST || 'email-ssl.com.br',
-        port: process.env.SMTP_PORT || 587,
-        secure: false, // true para 465, false para outras portas
-        auth: {
-            user: process.env.SMTP_USER || 'samal@cs-consoft.com.br',
-            pass: process.env.SMTP_PASS || 'C$1234sa;',
-        },
-    });
+    console.log(`[EMAIL] Iniciando envio de email para: ${destino}`);
+    console.log(`[EMAIL] Assunto: ${assunto}`);
+    
+    try {
+        // Configure o transporter conforme seu provedor de email
+        let transporter = nodemailer.createTransport({
+            host:'email-ssl.com.br',
+            port:587,
+            secure: false, // true para 465, false para outras portas
+            auth: {
+                user:'samal@cs-consoft.com.br',
+                pass:'C$1234sa;',
+            },
+        });
 
-    let mailOptions = {
-        from: 'Bot Whatsapp <bot@example.com>',
-        to: destino,
-        subject: assunto,
-        text: texto,
-    };
-    if (attachment) {
-        mailOptions.attachments = [attachment];
+        console.log(`[EMAIL] Configuração SMTP: ${process.env.SMTP_HOST || 'email-ssl.com.br'}:${process.env.SMTP_PORT || 587}`);
+
+        let mailOptions = {
+            from: 'Bot Whatsapp <samal@cs-consoft.com.br>',
+            to: destino || 'samal@cs-consoft.com.br', // Se não especificar destinatário, usa o email padrão
+            subject: assunto,
+            text: texto,
+        };
+        
+        if (attachment) {
+            mailOptions.attachments = [attachment];
+            console.log(`[EMAIL] Anexo adicionado: ${attachment.filename} (${attachment.contentType})`);
+        }
+        
+        console.log(`[EMAIL] Enviando email...`);
+        let info = await transporter.sendMail(mailOptions);
+        console.log(`[EMAIL] Email enviado com sucesso! ID: ${info.messageId}`);
+        return info;
+        
+    } catch (error) {
+        console.error(`[EMAIL] Erro ao enviar email:`, error);
+        throw error;
     }
-    let info = await transporter.sendMail(mailOptions);
-    return info;
 }
 
 module.exports = { emailConfig, enviarEmail };
